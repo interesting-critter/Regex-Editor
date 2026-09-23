@@ -1,0 +1,11 @@
+{
+  "version": "1.0.0",
+  "name": "Regex Studio",
+  "identifier": "regexstudio",
+  "author": "Critter",
+  "description": "Convert Character Cards, Lorebooks, or custom text into plain text to edit with regex find and replace.",
+  "permissions": ["characters", "world_books"],
+  "entry_backend": "dist/backend.js",
+  "entry_frontend": "dist/frontend.js",
+  "minimum_lumiverse_version": "0.1.0"
+}
