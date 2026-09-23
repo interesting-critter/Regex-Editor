@@ -20,6 +20,10 @@ interface RegexMatch {
   text: string
 }
 
+function escapeRegExp(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 export function setup(ctx: SpindleFrontendContext) {
   let currentMode: Mode = 'character'
   let characters: Array<{ id: string; name: string }> = []
@@ -37,7 +41,8 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-  // ── Regex & Navigation State ──
+  // ── Regex, Plain-Text & Navigation State ──
+  let useRegex = true
   const flags = { g: true, i: false, m: true, s: true }
   let currentMatches: RegexMatch[] = []
   let currentMatchIndex = -1
@@ -53,7 +58,7 @@ export function setup(ctx: SpindleFrontendContext) {
     id: 'regex_studio',
     title: 'Regex Studio',
     shortName: 'Rgx Studio',
-    description: 'Plain-text regex editor for characters, lorebooks, and custom text',
+    description: 'Plain-text and regex editor for cards, lorebooks, and custom text',
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
 
@@ -71,8 +76,9 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-btn-primary:hover:not(:disabled) { opacity: 0.9; }
     .rs-textarea { width: 100%; min-height: 270px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; resize: vertical; box-sizing: border-box; }
     .rs-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
-    .rs-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: 12px; cursor: pointer; user-select: none; }
+    .rs-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: 12px; cursor: pointer; user-select: none; font-weight: 500; }
     .rs-chip.active { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border-color: var(--lumiverse-accent); }
+    .rs-chip.disabled { opacity: 0.4; cursor: not-allowed; }
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
     .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
     .rs-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
@@ -104,16 +110,17 @@ export function setup(ctx: SpindleFrontendContext) {
       <!-- Regex Find & Replace Toolbar -->
       <div class="rs-card">
         <div class="rs-row">
-          <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find Regex (e.g. \\*[\\s\\S]*?\\*)" style="flex: 1; min-width: 140px;" />
-          <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace (e.g. $1 or empty)" style="flex: 1; min-width: 140px;" />
+          <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find text..." style="flex: 1; min-width: 140px;" />
+          <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace with..." style="flex: 1; min-width: 140px;" />
         </div>
         <div class="rs-row" style="justify-content: space-between;">
           <div class="rs-row">
-            <span style="font-size: 11px; color: var(--lumiverse-text-dim);">Flags:</span>
-            <label class="rs-chip active" id="rs-flag-g">g</label>
-            <label class="rs-chip" id="rs-flag-i">i</label>
-            <label class="rs-chip active" id="rs-flag-m">m</label>
-            <label class="rs-chip active" id="rs-flag-s">s</label>
+            <label class="rs-chip active" id="rs-toggle-regex" title="Toggle Regular Expressions">.* Regex</label>
+            <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 2px;">Flags:</span>
+            <label class="rs-chip active" id="rs-flag-g" title="Global match">g</label>
+            <label class="rs-chip" id="rs-flag-i" title="Case insensitive">i</label>
+            <label class="rs-chip active" id="rs-flag-m" title="Multiline">m</label>
+            <label class="rs-chip active" id="rs-flag-s" title="Dot matches newline">s</label>
             <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 4px;">Highlight:</span>
             <input type="color" id="rs-color-picker" class="rs-color-swatch" value="#6d5dfc" title="Change match highlight color" />
           </div>
@@ -156,6 +163,10 @@ export function setup(ctx: SpindleFrontendContext) {
   const chipsContainer = tab.root.querySelector('#rs-chips-container') as HTMLElement
   const regexFindInput = tab.root.querySelector('#rs-regex-find') as HTMLInputElement
   const regexReplaceInput = tab.root.querySelector('#rs-regex-replace') as HTMLInputElement
+  const regexToggleBtn = tab.root.querySelector('#rs-toggle-regex') as HTMLElement
+  const flagGEl = tab.root.querySelector('#rs-flag-g') as HTMLElement
+  const flagMEl = tab.root.querySelector('#rs-flag-m') as HTMLElement
+  const flagSEl = tab.root.querySelector('#rs-flag-s') as HTMLElement
   const colorPicker = tab.root.querySelector('#rs-color-picker') as HTMLInputElement
   const matchCountSpan = tab.root.querySelector('#rs-match-count') as HTMLElement
   const prevMatchBtn = tab.root.querySelector('#rs-prev-match-btn') as HTMLButtonElement
@@ -213,7 +224,6 @@ export function setup(ctx: SpindleFrontendContext) {
 
   // ── Highlight Color Customization ──
   function setHighlightColor(hexColor: string) {
-    // Apply with transparency so underlying text remains crisp
     tab.root.style.setProperty('--rs-highlight-color', `${hexColor}77`)
   }
 
@@ -256,10 +266,27 @@ export function setup(ctx: SpindleFrontendContext) {
     chipsContainer.appendChild(chip)
   })
 
-  // ── Wire Regex Flags ──
+  // ── Regex Toggle & Flags ──
+  function updateRegexModeUI() {
+    regexToggleBtn.classList.toggle('active', useRegex)
+    regexFindInput.placeholder = useRegex ? 'Find Regex (e.g. \\*[\\s\\S]*?\\*)' : 'Find plain text...'
+    regexReplaceInput.placeholder = useRegex ? 'Replace (e.g. $1 or empty)' : 'Replace text...'
+    
+    flagGEl.classList.toggle('disabled', !useRegex)
+    flagMEl.classList.toggle('disabled', !useRegex)
+    flagSEl.classList.toggle('disabled', !useRegex)
+    scanMatches({ shouldFocus: false })
+  }
+
+  regexToggleBtn.onclick = () => {
+    useRegex = !useRegex
+    updateRegexModeUI()
+  }
+
   ;(['g', 'i', 'm', 's'] as const).forEach((f) => {
     const el = tab.root.querySelector(`#rs-flag-${f}`) as HTMLElement
     el.onclick = () => {
+      if (!useRegex && (f === 'm' || f === 's' || f === 'g')) return
       flags[f] = !flags[f]
       el.classList.toggle('active', flags[f])
       scanMatches({ shouldFocus: false })
@@ -353,11 +380,16 @@ export function setup(ctx: SpindleFrontendContext) {
     return updates
   }
 
-  // ── Regex Engine: Match Scan, Stepping & Single Replace ──
+  // ── Match Scan, Stepping & Single Replace ──
   function getActiveRegExp(): RegExp | null {
     const pattern = regexFindInput.value
     if (!pattern) return null
     try {
+      if (!useRegex) {
+        // Plain text search (escaped regex with global and optional case-insensitivity)
+        return new RegExp(escapeRegExp(pattern), flags.i ? 'gi' : 'g')
+      }
+
       let flagStr = ''
       if (flags.g) flagStr += 'g'
       if (flags.i) flagStr += 'i'
@@ -447,13 +479,15 @@ export function setup(ctx: SpindleFrontendContext) {
     const replacePattern = regexReplaceInput.value
     const text = textEditor.value
     const matchedSubstring = text.slice(match.index, match.index + match.length)
-    const replaced = matchedSubstring.replace(rx, replacePattern)
+
+    const replaced = useRegex
+      ? matchedSubstring.replace(rx, replacePattern)
+      : replacePattern // plain text literal replacement
 
     const updatedText = text.slice(0, match.index) + replaced + text.slice(match.index + match.length)
     textEditor.value = updatedText
     pushHistory(updatedText)
 
-    // Re-scan and focus the next match
     scanMatches({ shouldFocus: true, preserveIndex: true })
   }
 
@@ -512,10 +546,8 @@ export function setup(ctx: SpindleFrontendContext) {
   modeCustomBtn.onclick = () => setMode('custom')
   refreshBtn.onclick = () => fetchList()
 
-  // Scanning find pattern without stealing focus
   regexFindInput.oninput = () => scanMatches({ shouldFocus: false })
 
-  // Pressing Enter in Find input steps to next/prev match
   regexFindInput.onkeydown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -524,7 +556,6 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
-  // Textarea typing with debounced undo snapshot
   textEditor.oninput = () => {
     scanMatches({ shouldFocus: false })
     if (typingTimer) clearTimeout(typingTimer)
@@ -544,7 +575,10 @@ export function setup(ctx: SpindleFrontendContext) {
     const rx = getActiveRegExp()
     if (!rx) return
     const replaceStr = regexReplaceInput.value
-    const updatedText = textEditor.value.replace(rx, replaceStr)
+    const updatedText = useRegex
+      ? textEditor.value.replace(rx, replaceStr)
+      : textEditor.value.replace(rx, () => replaceStr) // literal plain text replace
+
     textEditor.value = updatedText
     pushHistory(updatedText)
     scanMatches({ shouldFocus: false })
@@ -621,6 +655,7 @@ export function setup(ctx: SpindleFrontendContext) {
   })
 
   // Initial load
+  updateRegexModeUI()
   fetchList()
 
   // ── Teardown ──
