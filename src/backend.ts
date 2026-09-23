@@ -1,20 +1,59 @@
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI
 
+// Helper to fetch all pages of characters
+async function fetchAllCharacters(userId?: string) {
+  const all: Array<{ id: string; name: string }> = []
+  let offset = 0
+  const limit = 200
+
+  while (true) {
+    const result = await spindle.characters.list({ limit, offset, userId } as any)
+    const items = result.data || []
+    for (const item of items) {
+      all.push({ id: item.id, name: item.name })
+    }
+    if (items.length < limit || all.length >= (result.total || 0)) {
+      break
+    }
+    offset += limit
+  }
+  return all
+}
+
+// Helper to fetch all pages of world books
+async function fetchAllWorldBooks(userId?: string) {
+  const all: Array<{ id: string; name: string }> = []
+  let offset = 0
+  const limit = 200
+
+  while (true) {
+    const result = await spindle.world_books.list({ limit, offset, userId } as any)
+    const items = result.data || []
+    for (const item of items) {
+      all.push({ id: item.id, name: item.name })
+    }
+    if (items.length < limit || all.length >= (result.total || 0)) {
+      break
+    }
+    offset += limit
+  }
+  return all
+}
+
 spindle.onFrontendMessage(async (payload: any, userId?: string) => {
   try {
     switch (payload.type) {
       // ── Character Card Actions ──
       case 'list_characters': {
-        const result = await spindle.characters.list({ limit: 200, offset: 0, userId } as any)
+        const characters = await fetchAllCharacters(userId)
         spindle.sendToFrontend({
           type: 'characters_list',
-          characters: (result.data || []).map((c) => ({ id: c.id, name: c.name })),
+          characters,
         }, userId)
         break
       }
 
       case 'get_character': {
-        // userId is passed as a string 2nd argument
         const char = await spindle.characters.get(payload.characterId, userId as any)
         spindle.sendToFrontend({
           type: 'character_data',
@@ -24,7 +63,6 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
       }
 
       case 'save_character': {
-        // userId is passed as a string 3rd argument
         await spindle.characters.update(payload.characterId, payload.patch, userId as any)
         spindle.toast.success(`Character "${payload.name || 'card'}" updated!`)
         spindle.sendToFrontend({ type: 'save_success', entityType: 'character' }, userId)
@@ -33,23 +71,36 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
 
       // ── Lorebook Actions ──
       case 'list_world_books': {
-        const result = await spindle.world_books.list({ limit: 200, offset: 0, userId } as any)
+        const worldBooks = await fetchAllWorldBooks(userId)
         spindle.sendToFrontend({
           type: 'world_books_list',
-          worldBooks: (result.data || []).map((b) => ({ id: b.id, name: b.name })),
+          worldBooks,
         }, userId)
         break
       }
 
       case 'get_world_book': {
-        const entriesResult = await spindle.world_books.entries.list(
-          payload.worldBookId,
-          { limit: 200, offset: 0, userId } as any
-        )
+        // Fetch all entries for this lorebook
+        const allEntries: any[] = []
+        let offset = 0
+        const limit = 200
+        while (true) {
+          const entriesResult = await spindle.world_books.entries.list(
+            payload.worldBookId,
+            { limit, offset, userId } as any
+          )
+          const items = entriesResult.data || []
+          allEntries.push(...items)
+          if (items.length < limit || allEntries.length >= (entriesResult.total || 0)) {
+            break
+          }
+          offset += limit
+        }
+
         spindle.sendToFrontend({
           type: 'world_book_data',
           worldBookId: payload.worldBookId,
-          entries: entriesResult.data || [],
+          entries: allEntries,
         }, userId)
         break
       }
@@ -57,7 +108,6 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
       case 'save_world_book_entries': {
         const { updates } = payload
         for (const update of updates) {
-          // userId is passed as a string 3rd argument
           await spindle.world_books.entries.update(
             update.id,
             { content: update.content },
