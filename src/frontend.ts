@@ -1,18 +1,3 @@
-Here are the fixes and additions:
-
-### Why the focus bug happened:
-When typing in the **Find** input, `oninput` was calling `highlightCurrentMatch()`, which executed `textEditor.focus()` and selected the text. This immediately stole focus from the search input so your next keystroke went into the text editor, replacing the selected text! 
-
-### What was updated:
-1. **Focus Fix**: Typing in the Find field now only updates the match count without stealing your cursor focus. Pressing `Enter`, clicking `▶` / `◀`, or clicking `Replace` will smoothly navigate and highlight the match in the editor.
-2. **Custom Highlight Color**: Added a color picker next to the flags so you can pick any selection highlight color you like (persisted live via CSS variable).
-3. **Multi-Step Undo & Redo History**: Added full step-by-step **Undo (`↶ Undo`)** and **Redo (`↷ Redo`)** buttons with a snapshot history stack (up to 100 steps). Every single replacement, replace-all, or text edit is tracked, so you can step backward or forward as much as you want.
-
----
-
-### Updated `src/frontend.ts`
-
-```ts
 import type { SpindleFrontendContext, SpindleSelectHandle } from 'lumiverse-spindle-types'
 
 const CHAR_FIELDS = [
@@ -655,4 +640,3 @@ export function setup(ctx: SpindleFrontendContext) {
 
 ```bash
 bun run build
-```
