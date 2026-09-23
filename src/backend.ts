@@ -14,7 +14,8 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
       }
 
       case 'get_character': {
-        const char = await spindle.characters.get(payload.characterId, { userId } as any)
+        // userId is passed as a string 2nd argument
+        const char = await spindle.characters.get(payload.characterId, userId as any)
         spindle.sendToFrontend({
           type: 'character_data',
           character: char,
@@ -23,8 +24,9 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
       }
 
       case 'save_character': {
-        await spindle.characters.update(payload.characterId, payload.patch, { userId } as any)
-        spindle.toast.success(`Character "${payload.name || 'card'}" updated successfully!`, { userId } as any)
+        // userId is passed as a string 3rd argument
+        await spindle.characters.update(payload.characterId, payload.patch, userId as any)
+        spindle.toast.success(`Character "${payload.name || 'card'}" updated!`)
         spindle.sendToFrontend({ type: 'save_success', entityType: 'character' }, userId)
         break
       }
@@ -55,20 +57,21 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
       case 'save_world_book_entries': {
         const { updates } = payload
         for (const update of updates) {
+          // userId is passed as a string 3rd argument
           await spindle.world_books.entries.update(
             update.id,
             { content: update.content },
-            { userId } as any
+            userId as any
           )
         }
-        spindle.toast.success(`Updated ${updates.length} lorebook entries!`, { userId } as any)
+        spindle.toast.success(`Updated ${updates.length} lorebook entries!`)
         spindle.sendToFrontend({ type: 'save_success', entityType: 'world_book' }, userId)
         break
       }
     }
   } catch (err: any) {
     spindle.log.error(`[regex-studio] Error handling ${payload.type}: ${err.message}`)
-    spindle.toast.error(err.message, { title: 'Operation Failed', userId } as any)
+    spindle.toast.error(err.message, { title: 'Operation Failed' })
     spindle.sendToFrontend({ type: 'error', message: err.message }, userId)
   }
 })
