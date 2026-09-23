@@ -1,6 +1,5 @@
-import type { SpindleFrontendContext } from 'lumiverse-spindle-types'
+import type { SpindleFrontendContext, SpindleSelectHandle } from 'lumiverse-spindle-types'
 
-// Supported Character Fields
 const CHAR_FIELDS = [
   { key: 'first_mes', label: 'First Message' },
   { key: 'alternate_greetings', label: 'Alternate Greetings' },
@@ -15,59 +14,74 @@ const CHAR_FIELDS = [
 
 type Mode = 'character' | 'lorebook' | 'custom'
 
+interface RegexMatch {
+  index: number
+  length: number
+  text: string
+}
+
 export function setup(ctx: SpindleFrontendContext) {
-  // ── State ──
   let currentMode: Mode = 'character'
   let characters: Array<{ id: string; name: string }> = []
   let worldBooks: Array<{ id: string; name: string }> = []
   let selectedChar: any = null
   let selectedWorldBookEntries: any[] = []
-  let enabledFields = new Set<string>(['first_mes', 'alternate_greetings', 'description', 'personality', 'scenario'])
+  let selectedItemId = ''
+  let selectComponent: SpindleSelectHandle | null = null
 
-  // Regex Flags
+  const enabledFields = new Set<string>([
+    'first_mes',
+    'alternate_greetings',
+    'description',
+    'personality',
+    'scenario',
+  ])
+
+  // Regex State
   const flags = { g: true, i: false, m: true, s: true }
+  let currentMatches: RegexMatch[] = []
+  let currentMatchIndex = -1
 
-  // ── Tab Registration ──
+  // ── Register Drawer Tab ──
   const tab = ctx.ui.registerDrawerTab({
     id: 'regex_studio',
-    title: 'Regex Studio',
-    shortName: 'Regex Studio',
-    description: 'Convert and Regex edit cards, lorebooks, and custom text',
+    title: 'Rgx Studio',
+    shortName: 'Regex',
+    description: 'Plain-text regex editor for characters, lorebooks, and custom text',
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
 
-  // ── Inject CSS Styles ──
+  // ── Styles ──
   const removeStyle = ctx.dom.addStyle(`
     .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); }
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .rs-header-title { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
-    .rs-select, .rs-input { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 10px; font-size: 12px; outline: none; }
-    .rs-select:focus, .rs-input:focus { border-color: var(--lumiverse-accent); }
-    .rs-btn { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 12px; font-size: 12px; cursor: pointer; transition: background 0.15s; font-weight: 500; }
+    .rs-header-title { font-weight: 600; font-size: 13.5px; }
+    .rs-input { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 10px; font-size: 12px; outline: none; box-sizing: border-box; }
+    .rs-input:focus { border-color: var(--lumiverse-accent); }
+    .rs-btn { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 5px 10px; font-size: 12px; cursor: pointer; transition: background 0.15s; font-weight: 500; }
     .rs-btn:hover { background: var(--lumiverse-border); }
+    .rs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .rs-btn-primary { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); }
     .rs-btn-primary:hover { opacity: 0.9; }
-    .rs-textarea { width: 100%; min-height: 260px; font-family: monospace; font-size: 12px; line-height: 1.45; background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; resize: vertical; box-sizing: border-box; }
+    .rs-textarea { width: 100%; min-height: 270px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; resize: vertical; box-sizing: border-box; }
     .rs-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: 12px; cursor: pointer; user-select: none; }
     .rs-chip.active { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border-color: var(--lumiverse-accent); }
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
   `)
 
-  // ── Render Shell ──
+  // ── Render HTML Shell ──
   tab.root.innerHTML = `
     <div class="rs-container">
       <div class="rs-row">
-        <label class="rs-header-title">Source Mode:</label>
+        <label class="rs-header-title">Source:</label>
         <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character Card</button>
         <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
         <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
       </div>
 
-      <!-- Selector Section -->
-      <div id="rs-selector-section" class="rs-row">
-        <select id="rs-item-select" class="rs-select" style="flex: 1;">
-          <option value="">-- Choose Character --</option>
-        </select>
+      <!-- Searchable Select Slot -->
+      <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
+        <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
         <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
       </div>
 
@@ -77,11 +91,11 @@ export function setup(ctx: SpindleFrontendContext) {
         <div class="rs-row" id="rs-chips-container"></div>
       </div>
 
-      <!-- Regex Controls -->
+      <!-- Regex Find & Replace Toolbar -->
       <div class="rs-card">
         <div class="rs-row">
-          <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find Regex (e.g. \\*[\\s\\S]*?\\*)" style="flex: 2;" />
-          <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace With (e.g. $1 or empty)" style="flex: 2;" />
+          <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find Regex (e.g. \\*[\\s\\S]*?\\*)" style="flex: 1; min-width: 140px;" />
+          <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace (e.g. $1 or empty)" style="flex: 1; min-width: 140px;" />
         </div>
         <div class="rs-row" style="justify-content: space-between;">
           <div class="rs-row">
@@ -92,20 +106,23 @@ export function setup(ctx: SpindleFrontendContext) {
             <label class="rs-chip active" id="rs-flag-s">s</label>
           </div>
           <div class="rs-row">
-            <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">0 matches</span>
-            <button class="rs-btn rs-btn-primary" id="rs-apply-regex-btn">Replace All</button>
+            <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
+            <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
+            <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
+            <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
+            <button class="rs-btn rs-btn-primary" id="rs-replace-all-btn">Replace All</button>
           </div>
         </div>
       </div>
 
       <!-- Plain Text Editor -->
-      <textarea id="rs-text-editor" class="rs-textarea" placeholder="Selected character/lorebook text will be converted here. You can also paste arbitrary text."></textarea>
+      <textarea id="rs-text-editor" class="rs-textarea" placeholder="Selected character/lorebook text will be converted here. You can also paste your own text."></textarea>
 
-      <!-- Action Footer -->
+      <!-- Footer Actions -->
       <div class="rs-row" style="justify-content: flex-end;">
         <button class="rs-btn" id="rs-copy-btn">Copy Text</button>
-        <button class="rs-btn" id="rs-reset-btn">Reset</button>
-        <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save to Card / Lorebook</button>
+        <button class="rs-btn" id="rs-reset-btn">Reset Text</button>
+        <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
       </div>
     </div>
   `
@@ -115,20 +132,41 @@ export function setup(ctx: SpindleFrontendContext) {
   const modeLoreBtn = tab.root.querySelector('#rs-mode-lore') as HTMLButtonElement
   const modeCustomBtn = tab.root.querySelector('#rs-mode-custom') as HTMLButtonElement
   const selectorSection = tab.root.querySelector('#rs-selector-section') as HTMLElement
-  const itemSelect = tab.root.querySelector('#rs-item-select') as HTMLSelectElement
+  const selectSlot = tab.root.querySelector('#rs-select-slot') as HTMLElement
   const refreshBtn = tab.root.querySelector('#rs-refresh-btn') as HTMLButtonElement
   const fieldsFilterCard = tab.root.querySelector('#rs-fields-filter') as HTMLElement
   const chipsContainer = tab.root.querySelector('#rs-chips-container') as HTMLElement
   const regexFindInput = tab.root.querySelector('#rs-regex-find') as HTMLInputElement
   const regexReplaceInput = tab.root.querySelector('#rs-regex-replace') as HTMLInputElement
   const matchCountSpan = tab.root.querySelector('#rs-match-count') as HTMLElement
-  const applyRegexBtn = tab.root.querySelector('#rs-apply-regex-btn') as HTMLButtonElement
+  const prevMatchBtn = tab.root.querySelector('#rs-prev-match-btn') as HTMLButtonElement
+  const nextMatchBtn = tab.root.querySelector('#rs-next-match-btn') as HTMLButtonElement
+  const replaceOneBtn = tab.root.querySelector('#rs-replace-one-btn') as HTMLButtonElement
+  const replaceAllBtn = tab.root.querySelector('#rs-replace-all-btn') as HTMLButtonElement
   const textEditor = tab.root.querySelector('#rs-text-editor') as HTMLTextAreaElement
   const copyBtn = tab.root.querySelector('#rs-copy-btn') as HTMLButtonElement
   const resetBtn = tab.root.querySelector('#rs-reset-btn') as HTMLButtonElement
   const saveBtn = tab.root.querySelector('#rs-save-btn') as HTMLButtonElement
 
-  // ── Build Field Filter Chips ──
+  // ── Mount Native Searchable Select ──
+  selectComponent = ctx.components.mountSelect(selectSlot, {
+    value: '',
+    placeholder: 'Search and choose a Character...',
+    searchPlaceholder: 'Search by name...',
+    searchThreshold: 1, // always enable instant search
+    options: [],
+    onChange: (id) => {
+      selectedItemId = id
+      if (!id) return
+      if (currentMode === 'character') {
+        ctx.sendToBackend({ type: 'get_character', characterId: id })
+      } else if (currentMode === 'lorebook') {
+        ctx.sendToBackend({ type: 'get_world_book', worldBookId: id })
+      }
+    },
+  })
+
+  // ── Populate Field Filter Chips ──
   CHAR_FIELDS.forEach((f) => {
     const chip = document.createElement('span')
     chip.className = `rs-chip ${enabledFields.has(f.key) ? 'active' : ''}`
@@ -146,17 +184,17 @@ export function setup(ctx: SpindleFrontendContext) {
     chipsContainer.appendChild(chip)
   })
 
-  // ── Wire Flags ──
+  // ── Wire Regex Flags ──
   ;(['g', 'i', 'm', 's'] as const).forEach((f) => {
     const el = tab.root.querySelector(`#rs-flag-${f}`) as HTMLElement
     el.onclick = () => {
       flags[f] = !flags[f]
       el.classList.toggle('active', flags[f])
-      updateMatchCount()
+      scanMatches()
     }
   })
 
-  // ── Formatting Helpers: JSON <-> Plain Text ──
+  // ── Conversion: Characters <-> Plain Text ──
   function renderCharacterToText() {
     if (!selectedChar) return
     const sections: string[] = []
@@ -165,7 +203,9 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!enabledFields.has(f.key)) continue
 
       if (f.key === 'alternate_greetings') {
-        const altGreetings: string[] = Array.isArray(selectedChar.alternate_greetings) ? selectedChar.alternate_greetings : []
+        const altGreetings: string[] = Array.isArray(selectedChar.alternate_greetings)
+          ? selectedChar.alternate_greetings
+          : []
         altGreetings.forEach((greeting, idx) => {
           sections.push(`=== [Alternate Greeting ${idx + 1}] ===\n${greeting.trim()}`)
         })
@@ -176,7 +216,7 @@ export function setup(ctx: SpindleFrontendContext) {
     }
 
     textEditor.value = sections.join('\n\n')
-    updateMatchCount()
+    scanMatches()
   }
 
   function parseTextToCharacterPatch(): Record<string, any> {
@@ -184,7 +224,6 @@ export function setup(ctx: SpindleFrontendContext) {
     const patch: Record<string, any> = {}
     const altGreetings: string[] = []
 
-    // Split by sentinel headers: === [Header] ===
     const regexHeader = /===\s*\[([^\]]+)\]\s*===/g
     const matches = [...text.matchAll(regexHeader)]
 
@@ -211,13 +250,14 @@ export function setup(ctx: SpindleFrontendContext) {
     return patch
   }
 
+  // ── Conversion: Lorebooks <-> Plain Text ──
   function renderWorldBookToText() {
     const sections = selectedWorldBookEntries.map((entry, idx) => {
       const name = entry.comment || `Entry ${idx + 1}`
       return `=== [Entry: ${name} (ID: ${entry.id})] ===\n${(entry.content || '').trim()}`
     })
     textEditor.value = sections.join('\n\n')
-    updateMatchCount()
+    scanMatches()
   }
 
   function parseTextToWorldBookUpdates(): Array<{ id: string; content: string }> {
@@ -237,7 +277,7 @@ export function setup(ctx: SpindleFrontendContext) {
     return updates
   }
 
-  // ── Regex Helpers ──
+  // ── Regex Engine: Match Scan, Stepping & Single Replace ──
   function getActiveRegExp(): RegExp | null {
     const pattern = regexFindInput.value
     if (!pattern) return null
@@ -253,18 +293,92 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
-  function updateMatchCount() {
+  function scanMatches(preserveIndex = false) {
     const rx = getActiveRegExp()
-    if (!rx) {
-      matchCountSpan.textContent = '0 matches'
+    const text = textEditor.value
+    currentMatches = []
+
+    if (!rx || !text) {
+      currentMatchIndex = -1
+      updateMatchUI()
       return
     }
-    const matches = textEditor.value.match(rx)
-    const count = matches ? matches.length : 0
-    matchCountSpan.textContent = `${count} match${count === 1 ? '' : 'es'}`
+
+    let match: RegExpExecArray | null
+    // Ensure global flag for iteration
+    const execRx = rx.global ? rx : new RegExp(rx.source, rx.flags + 'g')
+
+    while ((match = execRx.exec(text)) !== null) {
+      currentMatches.push({
+        index: match.index,
+        length: match[0].length,
+        text: match[0],
+      })
+      if (match.index === execRx.lastIndex) {
+        execRx.lastIndex++ // avoid zero-length infinite loop
+      }
+    }
+
+    if (!preserveIndex || currentMatchIndex >= currentMatches.length) {
+      currentMatchIndex = currentMatches.length > 0 ? 0 : -1
+    }
+
+    updateMatchUI()
   }
 
-  // ── Mode Switching ──
+  function updateMatchUI() {
+    const total = currentMatches.length
+    if (total === 0) {
+      matchCountSpan.textContent = 'No matches'
+      prevMatchBtn.disabled = true
+      nextMatchBtn.disabled = true
+      replaceOneBtn.disabled = true
+    } else {
+      matchCountSpan.textContent = `${currentMatchIndex + 1} of ${total}`
+      prevMatchBtn.disabled = false
+      nextMatchBtn.disabled = false
+      replaceOneBtn.disabled = false
+      highlightCurrentMatch()
+    }
+  }
+
+  function highlightCurrentMatch() {
+    if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) return
+    const match = currentMatches[currentMatchIndex]
+    textEditor.focus()
+    textEditor.setSelectionRange(match.index, match.index + match.length)
+  }
+
+  function nextMatch() {
+    if (currentMatches.length === 0) return
+    currentMatchIndex = (currentMatchIndex + 1) % currentMatches.length
+    updateMatchUI()
+  }
+
+  function prevMatch() {
+    if (currentMatches.length === 0) return
+    currentMatchIndex = (currentMatchIndex - 1 + currentMatches.length) % currentMatches.length
+    updateMatchUI()
+  }
+
+  function replaceSingleMatch() {
+    if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) return
+    const match = currentMatches[currentMatchIndex]
+    const rx = getActiveRegExp()
+    if (!rx) return
+
+    const replacePattern = regexReplaceInput.value
+    const text = textEditor.value
+    const matchedSubstring = text.slice(match.index, match.index + match.length)
+    const replaced = matchedSubstring.replace(rx, replacePattern)
+
+    textEditor.value = text.slice(0, match.index) + replaced + text.slice(match.index + match.length)
+
+    // Re-scan matches and keep cursor position
+    scanMatches(true)
+  }
+
+  // ── Mode Switching & Dropdown Updates ──
   function setMode(mode: Mode) {
     currentMode = mode
     modeCharBtn.className = `rs-btn ${mode === 'character' ? 'rs-btn-primary' : ''}`
@@ -279,8 +393,28 @@ export function setup(ctx: SpindleFrontendContext) {
       selectorSection.style.display = 'flex'
       saveBtn.style.display = 'inline-block'
       fieldsFilterCard.style.display = mode === 'character' ? 'flex' : 'none'
-      itemSelect.innerHTML = `<option value="">-- Choose ${mode === 'character' ? 'Character' : 'Lorebook'} --</option>`
+      selectedItemId = ''
+      updateSelectOptions()
       fetchList()
+    }
+  }
+
+  function updateSelectOptions() {
+    if (!selectComponent) return
+    if (currentMode === 'character') {
+      selectComponent.update({
+        value: selectedItemId,
+        placeholder: `Choose from ${characters.length} characters...`,
+        searchPlaceholder: 'Search character name...',
+        options: characters.map((c) => ({ value: c.id, label: c.name })),
+      })
+    } else if (currentMode === 'lorebook') {
+      selectComponent.update({
+        value: selectedItemId,
+        placeholder: `Choose from ${worldBooks.length} lorebooks...`,
+        searchPlaceholder: 'Search lorebook name...',
+        options: worldBooks.map((b) => ({ value: b.id, label: b.name })),
+      })
     }
   }
 
@@ -298,25 +432,19 @@ export function setup(ctx: SpindleFrontendContext) {
   modeCustomBtn.onclick = () => setMode('custom')
   refreshBtn.onclick = () => fetchList()
 
-  itemSelect.onchange = () => {
-    const id = itemSelect.value
-    if (!id) return
-    if (currentMode === 'character') {
-      ctx.sendToBackend({ type: 'get_character', characterId: id })
-    } else if (currentMode === 'lorebook') {
-      ctx.sendToBackend({ type: 'get_world_book', worldBookId: id })
-    }
-  }
+  regexFindInput.oninput = () => scanMatches()
+  textEditor.oninput = () => scanMatches()
 
-  regexFindInput.oninput = () => updateMatchCount()
-  textEditor.oninput = () => updateMatchCount()
+  nextMatchBtn.onclick = () => nextMatch()
+  prevMatchBtn.onclick = () => prevMatch()
+  replaceOneBtn.onclick = () => replaceSingleMatch()
 
-  applyRegexBtn.onclick = () => {
+  replaceAllBtn.onclick = () => {
     const rx = getActiveRegExp()
     if (!rx) return
     const replaceStr = regexReplaceInput.value
     textEditor.value = textEditor.value.replace(rx, replaceStr)
-    updateMatchCount()
+    scanMatches()
   }
 
   resetBtn.onclick = () => {
@@ -338,11 +466,11 @@ export function setup(ctx: SpindleFrontendContext) {
         name: selectedChar.name,
         patch,
       })
-    } else if (currentMode === 'lorebook' && itemSelect.value) {
+    } else if (currentMode === 'lorebook' && selectedItemId) {
       const updates = parseTextToWorldBookUpdates()
       ctx.sendToBackend({
         type: 'save_world_book_entries',
-        worldBookId: itemSelect.value,
+        worldBookId: selectedItemId,
         updates,
       })
     }
@@ -353,25 +481,13 @@ export function setup(ctx: SpindleFrontendContext) {
     switch (payload.type) {
       case 'characters_list': {
         characters = payload.characters || []
-        itemSelect.innerHTML = `<option value="">-- Choose Character (${characters.length}) --</option>`
-        characters.forEach((c) => {
-          const opt = document.createElement('option')
-          opt.value = c.id
-          opt.textContent = c.name
-          itemSelect.appendChild(opt)
-        })
+        updateSelectOptions()
         break
       }
 
       case 'world_books_list': {
         worldBooks = payload.worldBooks || []
-        itemSelect.innerHTML = `<option value="">-- Choose Lorebook (${worldBooks.length}) --</option>`
-        worldBooks.forEach((b) => {
-          const opt = document.createElement('option')
-          opt.value = b.id
-          opt.textContent = b.name
-          itemSelect.appendChild(opt)
-        })
+        updateSelectOptions()
         break
       }
 
@@ -390,21 +506,22 @@ export function setup(ctx: SpindleFrontendContext) {
       case 'save_success': {
         if (payload.entityType === 'character' && selectedChar) {
           ctx.sendToBackend({ type: 'get_character', characterId: selectedChar.id })
-        } else if (payload.entityType === 'world_book' && itemSelect.value) {
-          ctx.sendToBackend({ type: 'get_world_book', worldBookId: itemSelect.value })
+        } else if (payload.entityType === 'world_book' && selectedItemId) {
+          ctx.sendToBackend({ type: 'get_world_book', worldBookId: selectedItemId })
         }
         break
       }
     }
   })
 
-  // Initial fetch on setup
+  // Initial load
   fetchList()
 
   // ── Teardown ──
   return () => {
     removeStyle()
     unsubMsg()
+    selectComponent?.destroy()
     tab.destroy()
   }
 }
