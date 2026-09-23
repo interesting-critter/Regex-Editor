@@ -3,6 +3,7 @@
   "name": "Regex Studio",
   "identifier": "regexstudio",
   "author": "Critter",
+  "github": "https://github.com/interesting-critter/Regex-Studio",
   "description": "Convert Character Cards, Lorebooks, or custom text into plain text to edit with regex find and replace.",
   "permissions": ["characters", "world_books"],
   "entry_backend": "dist/backend.js",
