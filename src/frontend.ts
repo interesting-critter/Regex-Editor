@@ -1,3 +1,18 @@
+Here are the fixes and additions:
+
+### Why the focus bug happened:
+When typing in the **Find** input, `oninput` was calling `highlightCurrentMatch()`, which executed `textEditor.focus()` and selected the text. This immediately stole focus from the search input so your next keystroke went into the text editor, replacing the selected text! 
+
+### What was updated:
+1. **Focus Fix**: Typing in the Find field now only updates the match count without stealing your cursor focus. Pressing `Enter`, clicking `▶` / `◀`, or clicking `Replace` will smoothly navigate and highlight the match in the editor.
+2. **Custom Highlight Color**: Added a color picker next to the flags so you can pick any selection highlight color you like (persisted live via CSS variable).
+3. **Multi-Step Undo & Redo History**: Added full step-by-step **Undo (`↶ Undo`)** and **Redo (`↷ Redo`)** buttons with a snapshot history stack (up to 100 steps). Every single replacement, replace-all, or text edit is tracked, so you can step backward or forward as much as you want.
+
+---
+
+### Updated `src/frontend.ts`
+
+```ts
 import type { SpindleFrontendContext, SpindleSelectHandle } from 'lumiverse-spindle-types'
 
 const CHAR_FIELDS = [
@@ -37,10 +52,16 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-  // Regex State
+  // ── Regex & Navigation State ──
   const flags = { g: true, i: false, m: true, s: true }
   let currentMatches: RegexMatch[] = []
   let currentMatchIndex = -1
+
+  // ── Undo / Redo History Stack ──
+  let historyStack: string[] = ['']
+  let historyIndex = 0
+  const MAX_HISTORY = 100
+  let typingTimer: ReturnType<typeof setTimeout> | null = null
 
   // ── Register Drawer Tab ──
   const tab = ctx.ui.registerDrawerTab({
@@ -58,15 +79,19 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-header-title { font-weight: 600; font-size: 13.5px; }
     .rs-input { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 10px; font-size: 12px; outline: none; box-sizing: border-box; }
     .rs-input:focus { border-color: var(--lumiverse-accent); }
-    .rs-btn { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 5px 10px; font-size: 12px; cursor: pointer; transition: background 0.15s; font-weight: 500; }
-    .rs-btn:hover { background: var(--lumiverse-border); }
-    .rs-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .rs-btn { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 5px 10px; font-size: 12px; cursor: pointer; transition: background 0.15s; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+    .rs-btn:hover:not(:disabled) { background: var(--lumiverse-border); }
+    .rs-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .rs-btn-primary { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); }
-    .rs-btn-primary:hover { opacity: 0.9; }
+    .rs-btn-primary:hover:not(:disabled) { opacity: 0.9; }
     .rs-textarea { width: 100%; min-height: 270px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; resize: vertical; box-sizing: border-box; }
+    .rs-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
     .rs-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: 12px; cursor: pointer; user-select: none; }
     .rs-chip.active { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border-color: var(--lumiverse-accent); }
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
+    .rs-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+    .rs-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
   `)
 
   // ── Render HTML Shell ──
@@ -104,11 +129,13 @@ export function setup(ctx: SpindleFrontendContext) {
             <label class="rs-chip" id="rs-flag-i">i</label>
             <label class="rs-chip active" id="rs-flag-m">m</label>
             <label class="rs-chip active" id="rs-flag-s">s</label>
+            <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 4px;">Highlight:</span>
+            <input type="color" id="rs-color-picker" class="rs-color-swatch" value="#6d5dfc" title="Change match highlight color" />
           </div>
           <div class="rs-row">
             <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
-            <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
-            <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
+            <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match (Shift+Enter in Find)" disabled>◀</button>
+            <button class="rs-btn" id="rs-next-match-btn" title="Next Match (Enter in Find)" disabled>▶</button>
             <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
             <button class="rs-btn rs-btn-primary" id="rs-replace-all-btn">Replace All</button>
           </div>
@@ -119,10 +146,16 @@ export function setup(ctx: SpindleFrontendContext) {
       <textarea id="rs-text-editor" class="rs-textarea" placeholder="Selected character/lorebook text will be converted here. You can also paste your own text."></textarea>
 
       <!-- Footer Actions -->
-      <div class="rs-row" style="justify-content: flex-end;">
-        <button class="rs-btn" id="rs-copy-btn">Copy Text</button>
-        <button class="rs-btn" id="rs-reset-btn">Reset Text</button>
-        <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
+      <div class="rs-row" style="justify-content: space-between;">
+        <div class="rs-row">
+          <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
+          <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
+        </div>
+        <div class="rs-row">
+          <button class="rs-btn" id="rs-copy-btn">Copy Text</button>
+          <button class="rs-btn" id="rs-reset-btn">Reset All</button>
+          <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
+        </div>
       </div>
     </div>
   `
@@ -138,22 +171,76 @@ export function setup(ctx: SpindleFrontendContext) {
   const chipsContainer = tab.root.querySelector('#rs-chips-container') as HTMLElement
   const regexFindInput = tab.root.querySelector('#rs-regex-find') as HTMLInputElement
   const regexReplaceInput = tab.root.querySelector('#rs-regex-replace') as HTMLInputElement
+  const colorPicker = tab.root.querySelector('#rs-color-picker') as HTMLInputElement
   const matchCountSpan = tab.root.querySelector('#rs-match-count') as HTMLElement
   const prevMatchBtn = tab.root.querySelector('#rs-prev-match-btn') as HTMLButtonElement
   const nextMatchBtn = tab.root.querySelector('#rs-next-match-btn') as HTMLButtonElement
   const replaceOneBtn = tab.root.querySelector('#rs-replace-one-btn') as HTMLButtonElement
   const replaceAllBtn = tab.root.querySelector('#rs-replace-all-btn') as HTMLButtonElement
   const textEditor = tab.root.querySelector('#rs-text-editor') as HTMLTextAreaElement
+  const undoBtn = tab.root.querySelector('#rs-undo-btn') as HTMLButtonElement
+  const redoBtn = tab.root.querySelector('#rs-redo-btn') as HTMLButtonElement
   const copyBtn = tab.root.querySelector('#rs-copy-btn') as HTMLButtonElement
   const resetBtn = tab.root.querySelector('#rs-reset-btn') as HTMLButtonElement
   const saveBtn = tab.root.querySelector('#rs-save-btn') as HTMLButtonElement
+
+  // ── Undo / Redo Stack Operations ──
+  function pushHistory(newVal: string) {
+    if (historyStack[historyIndex] === newVal) return
+    historyStack = historyStack.slice(0, historyIndex + 1)
+    historyStack.push(newVal)
+    if (historyStack.length > MAX_HISTORY) {
+      historyStack.shift()
+    } else {
+      historyIndex++
+    }
+    updateHistoryButtons()
+  }
+
+  function updateHistoryButtons() {
+    undoBtn.disabled = historyIndex <= 0
+    redoBtn.disabled = historyIndex >= historyStack.length - 1
+  }
+
+  function undo() {
+    if (historyIndex > 0) {
+      historyIndex--
+      textEditor.value = historyStack[historyIndex]
+      updateHistoryButtons()
+      scanMatches({ shouldFocus: false })
+    }
+  }
+
+  function redo() {
+    if (historyIndex < historyStack.length - 1) {
+      historyIndex++
+      textEditor.value = historyStack[historyIndex]
+      updateHistoryButtons()
+      scanMatches({ shouldFocus: false })
+    }
+  }
+
+  function resetHistory(initialText: string) {
+    historyStack = [initialText]
+    historyIndex = 0
+    updateHistoryButtons()
+  }
+
+  // ── Highlight Color Customization ──
+  function setHighlightColor(hexColor: string) {
+    // Apply with transparency so underlying text remains crisp
+    tab.root.style.setProperty('--rs-highlight-color', `${hexColor}77`)
+  }
+
+  colorPicker.oninput = () => setHighlightColor(colorPicker.value)
+  setHighlightColor(colorPicker.value)
 
   // ── Mount Native Searchable Select ──
   selectComponent = ctx.components.mountSelect(selectSlot, {
     value: '',
     placeholder: 'Search and choose a Character...',
     searchPlaceholder: 'Search by name...',
-    searchThreshold: 1, // always enable instant search
+    searchThreshold: 1,
     options: [],
     onChange: (id) => {
       selectedItemId = id
@@ -190,7 +277,7 @@ export function setup(ctx: SpindleFrontendContext) {
     el.onclick = () => {
       flags[f] = !flags[f]
       el.classList.toggle('active', flags[f])
-      scanMatches()
+      scanMatches({ shouldFocus: false })
     }
   })
 
@@ -215,8 +302,10 @@ export function setup(ctx: SpindleFrontendContext) {
       }
     }
 
-    textEditor.value = sections.join('\n\n')
-    scanMatches()
+    const text = sections.join('\n\n')
+    textEditor.value = text
+    resetHistory(text)
+    scanMatches({ shouldFocus: false })
   }
 
   function parseTextToCharacterPatch(): Record<string, any> {
@@ -256,8 +345,10 @@ export function setup(ctx: SpindleFrontendContext) {
       const name = entry.comment || `Entry ${idx + 1}`
       return `=== [Entry: ${name} (ID: ${entry.id})] ===\n${(entry.content || '').trim()}`
     })
-    textEditor.value = sections.join('\n\n')
-    scanMatches()
+    const text = sections.join('\n\n')
+    textEditor.value = text
+    resetHistory(text)
+    scanMatches({ shouldFocus: false })
   }
 
   function parseTextToWorldBookUpdates(): Array<{ id: string; content: string }> {
@@ -293,19 +384,18 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
-  function scanMatches(preserveIndex = false) {
+  function scanMatches(opts: { shouldFocus?: boolean; preserveIndex?: boolean } = {}) {
     const rx = getActiveRegExp()
     const text = textEditor.value
     currentMatches = []
 
     if (!rx || !text) {
       currentMatchIndex = -1
-      updateMatchUI()
+      updateMatchUI(opts.shouldFocus ?? false)
       return
     }
 
     let match: RegExpExecArray | null
-    // Ensure global flag for iteration
     const execRx = rx.global ? rx : new RegExp(rx.source, rx.flags + 'g')
 
     while ((match = execRx.exec(text)) !== null) {
@@ -315,18 +405,18 @@ export function setup(ctx: SpindleFrontendContext) {
         text: match[0],
       })
       if (match.index === execRx.lastIndex) {
-        execRx.lastIndex++ // avoid zero-length infinite loop
+        execRx.lastIndex++
       }
     }
 
-    if (!preserveIndex || currentMatchIndex >= currentMatches.length) {
+    if (!opts.preserveIndex || currentMatchIndex >= currentMatches.length) {
       currentMatchIndex = currentMatches.length > 0 ? 0 : -1
     }
 
-    updateMatchUI()
+    updateMatchUI(opts.shouldFocus ?? false)
   }
 
-  function updateMatchUI() {
+  function updateMatchUI(shouldFocus: boolean) {
     const total = currentMatches.length
     if (total === 0) {
       matchCountSpan.textContent = 'No matches'
@@ -338,7 +428,9 @@ export function setup(ctx: SpindleFrontendContext) {
       prevMatchBtn.disabled = false
       nextMatchBtn.disabled = false
       replaceOneBtn.disabled = false
-      highlightCurrentMatch()
+      if (shouldFocus) {
+        highlightCurrentMatch()
+      }
     }
   }
 
@@ -352,13 +444,13 @@ export function setup(ctx: SpindleFrontendContext) {
   function nextMatch() {
     if (currentMatches.length === 0) return
     currentMatchIndex = (currentMatchIndex + 1) % currentMatches.length
-    updateMatchUI()
+    updateMatchUI(true)
   }
 
   function prevMatch() {
     if (currentMatches.length === 0) return
     currentMatchIndex = (currentMatchIndex - 1 + currentMatches.length) % currentMatches.length
-    updateMatchUI()
+    updateMatchUI(true)
   }
 
   function replaceSingleMatch() {
@@ -372,10 +464,12 @@ export function setup(ctx: SpindleFrontendContext) {
     const matchedSubstring = text.slice(match.index, match.index + match.length)
     const replaced = matchedSubstring.replace(rx, replacePattern)
 
-    textEditor.value = text.slice(0, match.index) + replaced + text.slice(match.index + match.length)
+    const updatedText = text.slice(0, match.index) + replaced + text.slice(match.index + match.length)
+    textEditor.value = updatedText
+    pushHistory(updatedText)
 
-    // Re-scan matches and keep cursor position
-    scanMatches(true)
+    // Re-scan and focus the next match
+    scanMatches({ shouldFocus: true, preserveIndex: true })
   }
 
   // ── Mode Switching & Dropdown Updates ──
@@ -389,6 +483,7 @@ export function setup(ctx: SpindleFrontendContext) {
       selectorSection.style.display = 'none'
       fieldsFilterCard.style.display = 'none'
       saveBtn.style.display = 'none'
+      resetHistory(textEditor.value)
     } else {
       selectorSection.style.display = 'flex'
       saveBtn.style.display = 'inline-block'
@@ -432,8 +527,29 @@ export function setup(ctx: SpindleFrontendContext) {
   modeCustomBtn.onclick = () => setMode('custom')
   refreshBtn.onclick = () => fetchList()
 
-  regexFindInput.oninput = () => scanMatches()
-  textEditor.oninput = () => scanMatches()
+  // Scanning find pattern without stealing focus
+  regexFindInput.oninput = () => scanMatches({ shouldFocus: false })
+
+  // Pressing Enter in Find input steps to next/prev match
+  regexFindInput.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      if (e.shiftKey) prevMatch()
+      else nextMatch()
+    }
+  }
+
+  // Textarea typing with debounced undo snapshot
+  textEditor.oninput = () => {
+    scanMatches({ shouldFocus: false })
+    if (typingTimer) clearTimeout(typingTimer)
+    typingTimer = setTimeout(() => {
+      pushHistory(textEditor.value)
+    }, 600)
+  }
+
+  undoBtn.onclick = () => undo()
+  redoBtn.onclick = () => redo()
 
   nextMatchBtn.onclick = () => nextMatch()
   prevMatchBtn.onclick = () => prevMatch()
@@ -443,14 +559,19 @@ export function setup(ctx: SpindleFrontendContext) {
     const rx = getActiveRegExp()
     if (!rx) return
     const replaceStr = regexReplaceInput.value
-    textEditor.value = textEditor.value.replace(rx, replaceStr)
-    scanMatches()
+    const updatedText = textEditor.value.replace(rx, replaceStr)
+    textEditor.value = updatedText
+    pushHistory(updatedText)
+    scanMatches({ shouldFocus: false })
   }
 
   resetBtn.onclick = () => {
     if (currentMode === 'character' && selectedChar) renderCharacterToText()
     else if (currentMode === 'lorebook') renderWorldBookToText()
-    else textEditor.value = ''
+    else {
+      textEditor.value = ''
+      resetHistory('')
+    }
   }
 
   copyBtn.onclick = () => {
@@ -519,9 +640,19 @@ export function setup(ctx: SpindleFrontendContext) {
 
   // ── Teardown ──
   return () => {
+    if (typingTimer) clearTimeout(typingTimer)
     removeStyle()
     unsubMsg()
     selectComponent?.destroy()
     tab.destroy()
   }
 }
+```
+
+---
+
+### Rebuild
+
+```bash
+bun run build
+```
