@@ -99,7 +99,6 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--lumiverse-border); }
     .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
     
-    /* 250px minimum height, freely resizable vertically with no max cap */
     .rs-field-textarea { width: 100%; min-height: 250px; height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
     .rs-field-textarea:focus { background: var(--lumiverse-fill-subtle); }
     .rs-field-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
@@ -129,6 +128,19 @@ export function setup(ctx: SpindleFrontendContext) {
       <div id="rs-fields-filter" class="rs-card">
         <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
         <div class="rs-row" id="rs-chips-container"></div>
+      </div>
+
+      <!-- Action Toolbar (Moved Up) -->
+      <div class="rs-row" style="justify-content: space-between;">
+        <div class="rs-row">
+          <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
+          <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
+        </div>
+        <div class="rs-row">
+          <button class="rs-btn" id="rs-copy-btn">Copy All</button>
+          <button class="rs-btn" id="rs-reset-btn">Reset All</button>
+          <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
+        </div>
       </div>
 
       <!-- Regex Find & Replace Toolbar -->
@@ -162,19 +174,6 @@ export function setup(ctx: SpindleFrontendContext) {
       <div id="rs-fields-container" class="rs-fields-list">
         <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
           Choose a Character Card or Lorebook above to display editable fields.
-        </div>
-      </div>
-
-      <!-- Footer Actions -->
-      <div class="rs-row" style="justify-content: space-between;">
-        <div class="rs-row">
-          <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
-          <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
-        </div>
-        <div class="rs-row">
-          <button class="rs-btn" id="rs-copy-btn">Copy All Text</button>
-          <button class="rs-btn" id="rs-reset-btn">Reset All</button>
-          <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
         </div>
       </div>
     </div>
