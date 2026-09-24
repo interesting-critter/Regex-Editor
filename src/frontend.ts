@@ -60,7 +60,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let currentMatches: RegexMatch[] = []
   let currentMatchIndex = -1
 
-  // ── Undo / Redo History Stack (multi-field snapshots) ──
+  // ── Undo / Redo History Stack ──
   let historyStack: FieldItem[][] = [[]]
   let historyIndex = 0
   const MAX_HISTORY = 100
@@ -75,7 +75,7 @@ export function setup(ctx: SpindleFrontendContext) {
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
 
-  // ── Styles ──
+  // ── Styles (min-height: 250px) ──
   const removeStyle = ctx.dom.addStyle(`
     .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); }
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -93,12 +93,12 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-chip.disabled { opacity: 0.4; cursor: not-allowed; }
     
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; max-height: 55vh; overflow-y: auto; padding-right: 2px; }
+    .rs-fields-list { display: flex; flex-direction: column; gap: 14px; max-height: 65vh; overflow-y: auto; padding-right: 4px; }
     
-    .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; }
-    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--lumiverse-border); }
-    .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
-    .rs-field-textarea { width: 100%; min-height: 90px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
+    .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 7px 12px; font-size: 12px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--lumiverse-border); }
+    .rs-field-sub { font-size: 11px; font-weight: normal; color: var(--lumiverse-text-dim); }
+    .rs-field-textarea { width: 100%; min-height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.5; background: transparent; color: var(--lumiverse-text); border: none; padding: 10px 12px; resize: vertical; box-sizing: border-box; outline: none; }
     .rs-field-textarea:focus { background: var(--lumiverse-fill-subtle); }
     .rs-field-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
 
@@ -156,7 +156,7 @@ export function setup(ctx: SpindleFrontendContext) {
         </div>
       </div>
 
-      <!-- Multi-Field Text Editor Area -->
+      <!-- Multi-Field Text Editor Area (250px min-height per box) -->
       <div id="rs-fields-container" class="rs-fields-list">
         <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
           Choose a Character Card or Lorebook above to display editable fields.
