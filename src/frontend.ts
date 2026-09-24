@@ -14,8 +14,18 @@ const CHAR_FIELDS = [
 
 type Mode = 'character' | 'lorebook' | 'custom'
 
+interface FieldItem {
+  id: string
+  key: string
+  label: string
+  value: string
+  sublabel?: string
+}
+
 interface RegexMatch {
-  index: number
+  fieldId: string
+  fieldIndex: number
+  startIndex: number
   length: number
   text: string
 }
@@ -33,6 +43,9 @@ export function setup(ctx: SpindleFrontendContext) {
   let selectedItemId = ''
   let selectComponent: SpindleSelectHandle | null = null
 
+  // Current active fields
+  let fields: FieldItem[] = []
+
   const enabledFields = new Set<string>([
     'first_mes',
     'alternate_greetings',
@@ -41,14 +54,14 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-  // ── Regex, Plain-Text & Navigation State ──
+  // ── Regex & Navigation State ──
   let useRegex = true
   const flags = { g: true, i: false, m: true, s: true }
   let currentMatches: RegexMatch[] = []
   let currentMatchIndex = -1
 
-  // ── Undo / Redo History Stack ──
-  let historyStack: string[] = ['']
+  // ── Undo / Redo History Stack (multi-field snapshots) ──
+  let historyStack: FieldItem[][] = [[]]
   let historyIndex = 0
   const MAX_HISTORY = 100
   let typingTimer: ReturnType<typeof setTimeout> | null = null
@@ -57,8 +70,8 @@ export function setup(ctx: SpindleFrontendContext) {
   const tab = ctx.ui.registerDrawerTab({
     id: 'regex_studio',
     title: 'Regex Studio',
-    shortName: 'Rgx Studio',
-    description: 'Plain-text and regex editor for cards, lorebooks, and custom text',
+    shortName: 'Regex',
+    description: 'Multi-field regex editor for cards, lorebooks, and custom text',
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
 
@@ -74,12 +87,21 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .rs-btn-primary { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); }
     .rs-btn-primary:hover:not(:disabled) { opacity: 0.9; }
-    .rs-textarea { width: 100%; min-height: 270px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; resize: vertical; box-sizing: border-box; }
-    .rs-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
+    
     .rs-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: 12px; cursor: pointer; user-select: none; font-weight: 500; }
     .rs-chip.active { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border-color: var(--lumiverse-accent); }
     .rs-chip.disabled { opacity: 0.4; cursor: not-allowed; }
+    
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; max-height: 55vh; overflow-y: auto; padding-right: 2px; }
+    
+    .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; }
+    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--lumiverse-border); }
+    .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
+    .rs-field-textarea { width: 100%; min-height: 90px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
+    .rs-field-textarea:focus { background: var(--lumiverse-fill-subtle); }
+    .rs-field-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
+
     .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
     .rs-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
     .rs-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
@@ -103,7 +125,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
       <!-- Field Filter Chips (Characters) -->
       <div id="rs-fields-filter" class="rs-card">
-        <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Plain Text:</div>
+        <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
         <div class="rs-row" id="rs-chips-container"></div>
       </div>
 
@@ -126,16 +148,20 @@ export function setup(ctx: SpindleFrontendContext) {
           </div>
           <div class="rs-row">
             <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
-            <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match (Shift+Enter in Find)" disabled>◀</button>
-            <button class="rs-btn" id="rs-next-match-btn" title="Next Match (Enter in Find)" disabled>▶</button>
+            <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
+            <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
             <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
             <button class="rs-btn rs-btn-primary" id="rs-replace-all-btn">Replace All</button>
           </div>
         </div>
       </div>
 
-      <!-- Plain Text Editor -->
-      <textarea id="rs-text-editor" class="rs-textarea" placeholder="Selected character/lorebook text will be converted here. You can also paste your own text."></textarea>
+      <!-- Multi-Field Text Editor Area -->
+      <div id="rs-fields-container" class="rs-fields-list">
+        <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
+          Choose a Character Card or Lorebook above to display editable fields.
+        </div>
+      </div>
 
       <!-- Footer Actions -->
       <div class="rs-row" style="justify-content: space-between;">
@@ -144,7 +170,7 @@ export function setup(ctx: SpindleFrontendContext) {
           <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
         </div>
         <div class="rs-row">
-          <button class="rs-btn" id="rs-copy-btn">Copy Text</button>
+          <button class="rs-btn" id="rs-copy-btn">Copy All Text</button>
           <button class="rs-btn" id="rs-reset-btn">Reset All</button>
           <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
         </div>
@@ -173,18 +199,21 @@ export function setup(ctx: SpindleFrontendContext) {
   const nextMatchBtn = tab.root.querySelector('#rs-next-match-btn') as HTMLButtonElement
   const replaceOneBtn = tab.root.querySelector('#rs-replace-one-btn') as HTMLButtonElement
   const replaceAllBtn = tab.root.querySelector('#rs-replace-all-btn') as HTMLButtonElement
-  const textEditor = tab.root.querySelector('#rs-text-editor') as HTMLTextAreaElement
+  const fieldsContainer = tab.root.querySelector('#rs-fields-container') as HTMLElement
   const undoBtn = tab.root.querySelector('#rs-undo-btn') as HTMLButtonElement
   const redoBtn = tab.root.querySelector('#rs-redo-btn') as HTMLButtonElement
   const copyBtn = tab.root.querySelector('#rs-copy-btn') as HTMLButtonElement
   const resetBtn = tab.root.querySelector('#rs-reset-btn') as HTMLButtonElement
   const saveBtn = tab.root.querySelector('#rs-save-btn') as HTMLButtonElement
 
-  // ── Undo / Redo Stack Operations ──
-  function pushHistory(newVal: string) {
-    if (historyStack[historyIndex] === newVal) return
+  // ── Undo / Redo History Stack ──
+  function cloneFields(arr: FieldItem[]): FieldItem[] {
+    return arr.map((f) => ({ ...f }))
+  }
+
+  function pushHistory(newFields: FieldItem[]) {
     historyStack = historyStack.slice(0, historyIndex + 1)
-    historyStack.push(newVal)
+    historyStack.push(cloneFields(newFields))
     if (historyStack.length > MAX_HISTORY) {
       historyStack.shift()
     } else {
@@ -201,7 +230,8 @@ export function setup(ctx: SpindleFrontendContext) {
   function undo() {
     if (historyIndex > 0) {
       historyIndex--
-      textEditor.value = historyStack[historyIndex]
+      fields = cloneFields(historyStack[historyIndex])
+      updateDomTextareasFromState()
       updateHistoryButtons()
       scanMatches({ shouldFocus: false })
     }
@@ -210,27 +240,27 @@ export function setup(ctx: SpindleFrontendContext) {
   function redo() {
     if (historyIndex < historyStack.length - 1) {
       historyIndex++
-      textEditor.value = historyStack[historyIndex]
+      fields = cloneFields(historyStack[historyIndex])
+      updateDomTextareasFromState()
       updateHistoryButtons()
       scanMatches({ shouldFocus: false })
     }
   }
 
-  function resetHistory(initialText: string) {
-    historyStack = [initialText]
+  function resetHistory(initialFields: FieldItem[]) {
+    historyStack = [cloneFields(initialFields)]
     historyIndex = 0
     updateHistoryButtons()
   }
 
-  // ── Highlight Color Customization ──
+  // ── Highlight Color ──
   function setHighlightColor(hexColor: string) {
     tab.root.style.setProperty('--rs-highlight-color', `${hexColor}77`)
   }
-
   colorPicker.oninput = () => setHighlightColor(colorPicker.value)
   setHighlightColor(colorPicker.value)
 
-  // ── Mount Native Searchable Select ──
+  // ── Native Searchable Select ──
   selectComponent = ctx.components.mountSelect(selectSlot, {
     value: '',
     placeholder: 'Search and choose a Character...',
@@ -248,7 +278,7 @@ export function setup(ctx: SpindleFrontendContext) {
     },
   })
 
-  // ── Populate Field Filter Chips ──
+  // ── Field Filter Chips ──
   CHAR_FIELDS.forEach((f) => {
     const chip = document.createElement('span')
     chip.className = `rs-chip ${enabledFields.has(f.key) ? 'active' : ''}`
@@ -261,7 +291,7 @@ export function setup(ctx: SpindleFrontendContext) {
         enabledFields.add(f.key)
         chip.classList.add('active')
       }
-      if (selectedChar) renderCharacterToText()
+      if (selectedChar) buildCharacterFields()
     }
     chipsContainer.appendChild(chip)
   })
@@ -271,7 +301,6 @@ export function setup(ctx: SpindleFrontendContext) {
     regexToggleBtn.classList.toggle('active', useRegex)
     regexFindInput.placeholder = useRegex ? 'Find Regex (e.g. \\*[\\s\\S]*?\\*)' : 'Find plain text...'
     regexReplaceInput.placeholder = useRegex ? 'Replace (e.g. $1 or empty)' : 'Replace text...'
-    
     flagGEl.classList.toggle('disabled', !useRegex)
     flagMEl.classList.toggle('disabled', !useRegex)
     flagSEl.classList.toggle('disabled', !useRegex)
@@ -293,10 +322,67 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   })
 
-  // ── Conversion: Characters <-> Plain Text ──
-  function renderCharacterToText() {
+  // ── Multi-Field DOM Renderer ──
+  function renderFieldsDOM() {
+    fieldsContainer.innerHTML = ''
+
+    if (fields.length === 0) {
+      fieldsContainer.innerHTML = `
+        <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
+          ${currentMode === 'custom' ? 'Type in the box below.' : 'No active fields selected.'}
+        </div>
+      `
+      return
+    }
+
+    fields.forEach((field, index) => {
+      const box = document.createElement('div')
+      box.className = 'rs-field-box'
+
+      const header = document.createElement('div')
+      header.className = 'rs-field-header'
+      header.innerHTML = `
+        <span>${field.label}</span>
+        ${field.sublabel ? `<span class="rs-field-sub">${field.sublabel}</span>` : ''}
+      `
+
+      const textarea = document.createElement('textarea')
+      textarea.className = 'rs-field-textarea'
+      textarea.value = field.value
+      textarea.dataset.fieldId = field.id
+      textarea.placeholder = `Enter ${field.label.toLowerCase()} here...`
+
+      textarea.oninput = () => {
+        field.value = textarea.value
+        scanMatches({ shouldFocus: false })
+
+        if (typingTimer) clearTimeout(typingTimer)
+        typingTimer = setTimeout(() => {
+          pushHistory(fields)
+        }, 600)
+      }
+
+      box.appendChild(header)
+      box.appendChild(textarea)
+      fieldsContainer.appendChild(box)
+    })
+
+    scanMatches({ shouldFocus: false })
+  }
+
+  function updateDomTextareasFromState() {
+    fields.forEach((field) => {
+      const ta = fieldsContainer.querySelector(`[data-field-id="${field.id}"]`) as HTMLTextAreaElement | null
+      if (ta && ta.value !== field.value) {
+        ta.value = field.value
+      }
+    })
+  }
+
+  // ── Build Field Models from Entities ──
+  function buildCharacterFields() {
     if (!selectedChar) return
-    const sections: string[] = []
+    const newFields: FieldItem[] = []
 
     for (const f of CHAR_FIELDS) {
       if (!enabledFields.has(f.key)) continue
@@ -306,90 +392,62 @@ export function setup(ctx: SpindleFrontendContext) {
           ? selectedChar.alternate_greetings
           : []
         altGreetings.forEach((greeting, idx) => {
-          sections.push(`=== [Alternate Greeting ${idx + 1}] ===\n${greeting.trim()}`)
+          newFields.push({
+            id: `alt_greeting_${idx}`,
+            key: 'alternate_greetings',
+            label: `Alternate Greeting ${idx + 1}`,
+            value: greeting || '',
+          })
         })
       } else {
-        const val = (selectedChar[f.key] || '').trim()
-        sections.push(`=== [${f.label}] ===\n${val}`)
+        newFields.push({
+          id: f.key,
+          key: f.key,
+          label: f.label,
+          value: selectedChar[f.key] || '',
+        })
       }
     }
 
-    const text = sections.join('\n\n')
-    textEditor.value = text
-    resetHistory(text)
-    scanMatches({ shouldFocus: false })
+    fields = newFields
+    renderFieldsDOM()
+    resetHistory(fields)
   }
 
-  function parseTextToCharacterPatch(): Record<string, any> {
-    const text = textEditor.value
-    const patch: Record<string, any> = {}
-    const altGreetings: string[] = []
+  function buildWorldBookFields() {
+    fields = selectedWorldBookEntries.map((entry, idx) => ({
+      id: entry.id,
+      key: 'entry',
+      label: entry.comment || `Entry ${idx + 1}`,
+      sublabel: `ID: ${entry.id}`,
+      value: entry.content || '',
+    }))
 
-    const regexHeader = /===\s*\[([^\]]+)\]\s*===/g
-    const matches = [...text.matchAll(regexHeader)]
-
-    for (let i = 0; i < matches.length; i++) {
-      const headerTitle = matches[i][1].trim()
-      const startIndex = matches[i].index! + matches[i][0].length
-      const endIndex = i + 1 < matches.length ? matches[i + 1].index! : text.length
-      const content = text.slice(startIndex, endIndex).trim()
-
-      if (headerTitle.startsWith('Alternate Greeting')) {
-        altGreetings.push(content)
-      } else {
-        const field = CHAR_FIELDS.find((f) => f.label.toLowerCase() === headerTitle.toLowerCase())
-        if (field) {
-          patch[field.key] = content
-        }
-      }
-    }
-
-    if (enabledFields.has('alternate_greetings')) {
-      patch.alternate_greetings = altGreetings
-    }
-
-    return patch
+    renderFieldsDOM()
+    resetHistory(fields)
   }
 
-  // ── Conversion: Lorebooks <-> Plain Text ──
-  function renderWorldBookToText() {
-    const sections = selectedWorldBookEntries.map((entry, idx) => {
-      const name = entry.comment || `Entry ${idx + 1}`
-      return `=== [Entry: ${name} (ID: ${entry.id})] ===\n${(entry.content || '').trim()}`
-    })
-    const text = sections.join('\n\n')
-    textEditor.value = text
-    resetHistory(text)
-    scanMatches({ shouldFocus: false })
+  function buildCustomField() {
+    fields = [
+      {
+        id: 'custom_scratchpad',
+        key: 'custom',
+        label: 'Custom Text Editor',
+        value: fields[0]?.value || '',
+      },
+    ]
+    renderFieldsDOM()
+    resetHistory(fields)
   }
 
-  function parseTextToWorldBookUpdates(): Array<{ id: string; content: string }> {
-    const text = textEditor.value
-    const updates: Array<{ id: string; content: string }> = []
-    const headerRegex = /===\s*\[Entry:\s*(.*?)\s*\(ID:\s*([a-zA-Z0-9_-]+)\)\]\s*===/g
-    const matches = [...text.matchAll(headerRegex)]
-
-    for (let i = 0; i < matches.length; i++) {
-      const entryId = matches[i][2].trim()
-      const startIndex = matches[i].index! + matches[i][0].length
-      const endIndex = i + 1 < matches.length ? matches[i + 1].index! : text.length
-      const content = text.slice(startIndex, endIndex).trim()
-      updates.push({ id: entryId, content })
-    }
-
-    return updates
-  }
-
-  // ── Match Scan, Stepping & Single Replace ──
+  // ── Unified Regex Engine across all Fields ──
   function getActiveRegExp(): RegExp | null {
     const pattern = regexFindInput.value
     if (!pattern) return null
     try {
       if (!useRegex) {
-        // Plain text search (escaped regex with global and optional case-insensitivity)
         return new RegExp(escapeRegExp(pattern), flags.i ? 'gi' : 'g')
       }
-
       let flagStr = ''
       if (flags.g) flagStr += 'g'
       if (flags.i) flagStr += 'i'
@@ -403,28 +461,33 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function scanMatches(opts: { shouldFocus?: boolean; preserveIndex?: boolean } = {}) {
     const rx = getActiveRegExp()
-    const text = textEditor.value
     currentMatches = []
 
-    if (!rx || !text) {
+    if (!rx || fields.length === 0) {
       currentMatchIndex = -1
       updateMatchUI(opts.shouldFocus ?? false)
       return
     }
 
-    let match: RegExpExecArray | null
     const execRx = rx.global ? rx : new RegExp(rx.source, rx.flags + 'g')
 
-    while ((match = execRx.exec(text)) !== null) {
-      currentMatches.push({
-        index: match.index,
-        length: match[0].length,
-        text: match[0],
-      })
-      if (match.index === execRx.lastIndex) {
-        execRx.lastIndex++
+    fields.forEach((field, fieldIndex) => {
+      let match: RegExpExecArray | null
+      execRx.lastIndex = 0
+
+      while ((match = execRx.exec(field.value)) !== null) {
+        currentMatches.push({
+          fieldId: field.id,
+          fieldIndex,
+          startIndex: match.index,
+          length: match[0].length,
+          text: match[0],
+        })
+        if (match.index === execRx.lastIndex) {
+          execRx.lastIndex++
+        }
       }
-    }
+    })
 
     if (!opts.preserveIndex || currentMatchIndex >= currentMatches.length) {
       currentMatchIndex = currentMatches.length > 0 ? 0 : -1
@@ -454,8 +517,12 @@ export function setup(ctx: SpindleFrontendContext) {
   function highlightCurrentMatch() {
     if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) return
     const match = currentMatches[currentMatchIndex]
-    textEditor.focus()
-    textEditor.setSelectionRange(match.index, match.index + match.length)
+    const textarea = fieldsContainer.querySelector(`[data-field-id="${match.fieldId}"]`) as HTMLTextAreaElement | null
+    if (textarea) {
+      textarea.focus()
+      textarea.setSelectionRange(match.startIndex, match.startIndex + match.length)
+      textarea.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }
   }
 
   function nextMatch() {
@@ -473,25 +540,42 @@ export function setup(ctx: SpindleFrontendContext) {
   function replaceSingleMatch() {
     if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) return
     const match = currentMatches[currentMatchIndex]
+    const field = fields[match.fieldIndex]
     const rx = getActiveRegExp()
-    if (!rx) return
+    if (!rx || !field) return
 
     const replacePattern = regexReplaceInput.value
-    const text = textEditor.value
-    const matchedSubstring = text.slice(match.index, match.index + match.length)
+    const matchedSubstring = field.value.slice(match.startIndex, match.startIndex + match.length)
 
     const replaced = useRegex
       ? matchedSubstring.replace(rx, replacePattern)
-      : replacePattern // plain text literal replacement
+      : replacePattern
 
-    const updatedText = text.slice(0, match.index) + replaced + text.slice(match.index + match.length)
-    textEditor.value = updatedText
-    pushHistory(updatedText)
+    field.value = field.value.slice(0, match.startIndex) + replaced + field.value.slice(match.startIndex + match.length)
 
+    updateDomTextareasFromState()
+    pushHistory(fields)
     scanMatches({ shouldFocus: true, preserveIndex: true })
   }
 
-  // ── Mode Switching & Dropdown Updates ──
+  function replaceAll() {
+    const rx = getActiveRegExp()
+    if (!rx || fields.length === 0) return
+
+    const replaceStr = regexReplaceInput.value
+
+    fields.forEach((field) => {
+      field.value = useRegex
+        ? field.value.replace(rx, replaceStr)
+        : field.value.replace(rx, () => replaceStr)
+    })
+
+    updateDomTextareasFromState()
+    pushHistory(fields)
+    scanMatches({ shouldFocus: false })
+  }
+
+  // ── Mode Switching ──
   function setMode(mode: Mode) {
     currentMode = mode
     modeCharBtn.className = `rs-btn ${mode === 'character' ? 'rs-btn-primary' : ''}`
@@ -502,7 +586,7 @@ export function setup(ctx: SpindleFrontendContext) {
       selectorSection.style.display = 'none'
       fieldsFilterCard.style.display = 'none'
       saveBtn.style.display = 'none'
-      resetHistory(textEditor.value)
+      buildCustomField()
     } else {
       selectorSection.style.display = 'flex'
       saveBtn.style.display = 'inline-block'
@@ -556,50 +640,42 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
-  textEditor.oninput = () => {
-    scanMatches({ shouldFocus: false })
-    if (typingTimer) clearTimeout(typingTimer)
-    typingTimer = setTimeout(() => {
-      pushHistory(textEditor.value)
-    }, 600)
-  }
-
   undoBtn.onclick = () => undo()
   redoBtn.onclick = () => redo()
 
   nextMatchBtn.onclick = () => nextMatch()
   prevMatchBtn.onclick = () => prevMatch()
   replaceOneBtn.onclick = () => replaceSingleMatch()
-
-  replaceAllBtn.onclick = () => {
-    const rx = getActiveRegExp()
-    if (!rx) return
-    const replaceStr = regexReplaceInput.value
-    const updatedText = useRegex
-      ? textEditor.value.replace(rx, replaceStr)
-      : textEditor.value.replace(rx, () => replaceStr) // literal plain text replace
-
-    textEditor.value = updatedText
-    pushHistory(updatedText)
-    scanMatches({ shouldFocus: false })
-  }
+  replaceAllBtn.onclick = () => replaceAll()
 
   resetBtn.onclick = () => {
-    if (currentMode === 'character' && selectedChar) renderCharacterToText()
-    else if (currentMode === 'lorebook') renderWorldBookToText()
-    else {
-      textEditor.value = ''
-      resetHistory('')
-    }
+    if (currentMode === 'character' && selectedChar) buildCharacterFields()
+    else if (currentMode === 'lorebook') buildWorldBookFields()
+    else buildCustomField()
   }
 
   copyBtn.onclick = () => {
-    navigator.clipboard.writeText(textEditor.value)
+    const combined = fields.map((f) => `[${f.label}]\n${f.value}`).join('\n\n')
+    navigator.clipboard.writeText(combined)
   }
 
   saveBtn.onclick = () => {
     if (currentMode === 'character' && selectedChar) {
-      const patch = parseTextToCharacterPatch()
+      const patch: Record<string, any> = {}
+      const altGreetings: string[] = []
+
+      fields.forEach((f) => {
+        if (f.key === 'alternate_greetings') {
+          altGreetings.push(f.value)
+        } else {
+          patch[f.key] = f.value
+        }
+      })
+
+      if (enabledFields.has('alternate_greetings')) {
+        patch.alternate_greetings = altGreetings
+      }
+
       ctx.sendToBackend({
         type: 'save_character',
         characterId: selectedChar.id,
@@ -607,7 +683,7 @@ export function setup(ctx: SpindleFrontendContext) {
         patch,
       })
     } else if (currentMode === 'lorebook' && selectedItemId) {
-      const updates = parseTextToWorldBookUpdates()
+      const updates = fields.map((f) => ({ id: f.id, content: f.value }))
       ctx.sendToBackend({
         type: 'save_world_book_entries',
         worldBookId: selectedItemId,
@@ -633,13 +709,13 @@ export function setup(ctx: SpindleFrontendContext) {
 
       case 'character_data': {
         selectedChar = payload.character
-        renderCharacterToText()
+        buildCharacterFields()
         break
       }
 
       case 'world_book_data': {
         selectedWorldBookEntries = payload.entries || []
-        renderWorldBookToText()
+        buildWorldBookFields()
         break
       }
 
