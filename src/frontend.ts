@@ -905,12 +905,3 @@ export function setup(ctx: SpindleFrontendContext) {
     tab.destroy()
   }
 }
-```
-
----
-
-### Rebuild
-
-```bash
-bun run build
-```
