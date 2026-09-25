@@ -69,7 +69,7 @@ function computeWordDiffHtml(oldStr: string, newStr: string): string {
 }
 
 export function showDiffPreviewModal(
-  ctx: SpindleFrontendContext,
+  _ctx: SpindleFrontendContext,
   diffItems: FieldDiffItem[],
   onConfirm: () => void
 ) {
@@ -79,75 +79,166 @@ export function showDiffPreviewModal(
     return false
   }
 
-  // Calculate 85% width and 75% height of current window
-  const winW = typeof window !== 'undefined' ? window.innerWidth : 1000
-  const winH = typeof window !== 'undefined' ? window.innerHeight : 800
+  // Remove any existing preview modal
+  document.querySelectorAll('.rs-diff-modal-overlay').forEach((el) => el.remove())
 
-  const targetWidth = Math.round(winW * 0.85)
-  const targetHeight = Math.round(winH * 0.75)
-
-  const modal = ctx.ui.showModal({
-    title: `Preview Changes (${modifiedFields.length} field${modifiedFields.length === 1 ? '' : 's'} modified)`,
-    width: targetWidth,
-    maxHeight: targetHeight,
-  })
-
-  // Ensure modal root expands and claims vertical space inside host modal
-  modal.root.style.cssText = `
+  const overlay = document.createElement('div')
+  overlay.className = 'rs-diff-modal-overlay'
+  overlay.style.cssText = `
+    position: fixed;
+    inset: 0;
+    background: var(--lumiverse-modal-backdrop, rgba(0, 0, 0, 0.65));
+    z-index: 99999;
     display: flex;
-    flex-direction: column;
-    flex: 1;
-    height: 100%;
-    min-height: min(60vh, 520px);
-    width: 100%;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(4px);
     box-sizing: border-box;
-    overflow: hidden;
   `
 
   let diffCardsHtml = ''
   for (const field of modifiedFields) {
     const diffContent = computeWordDiffHtml(field.oldValue, field.newValue)
     diffCardsHtml += `
-      <div style="background: var(--lumiverse-fill-subtle, rgba(255,255,255,0.03)); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); overflow: hidden; margin-bottom: 12px; flex-shrink: 0;">
-        <div style="background: var(--lumiverse-fill-subtle, rgba(255,255,255,0.06)); padding: 8px 12px; font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--lumiverse-border); display: flex; justify-content: space-between; align-items: center;">
+      <div style="background: var(--lumiverse-fill, rgba(255, 255, 255, 0.03)); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius, 6px); overflow: hidden; margin-bottom: 12px; flex-shrink: 0;">
+        <div style="background: var(--lumiverse-fill-subtle, rgba(255, 255, 255, 0.05)); padding: 8px 12px; font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--lumiverse-border); display: flex; justify-content: space-between; align-items: center; color: var(--lumiverse-text, #fff);">
           <span>${field.label}</span>
-          ${field.sublabel ? `<span style="font-size: 11px; color: var(--lumiverse-text-dim); font-weight: normal;">${field.sublabel}</span>` : ''}
+          ${field.sublabel ? `<span style="font-size: 11px; color: var(--lumiverse-text-dim, rgba(255, 255, 255, 0.5)); font-weight: normal;">${field.sublabel}</span>` : ''}
         </div>
-        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word;">
+        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--lumiverse-text, #fff);">
           ${diffContent}
         </div>
       </div>
     `
   }
 
-  modal.root.innerHTML = `
-    <div style="display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; color: var(--lumiverse-text); box-sizing: border-box;">
-      <!-- Pinned Top Header -->
-      <div style="flex-shrink: 0; font-size: 12px; color: var(--lumiverse-text-dim); margin-bottom: 10px;">
-        Review replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
+  overlay.innerHTML = `
+    <div class="rs-diff-card" style="
+      background: var(--lumiverse-gradient-modal, linear-gradient(135deg, rgba(35, 30, 48, 0.98), rgba(20, 17, 28, 0.98)));
+      border: 1px solid var(--lumiverse-border, rgba(255, 255, 255, 0.15));
+      border-radius: calc(var(--lumiverse-radius, 8px) + 4px);
+      width: min(940px, 92vw);
+      height: min(82vh, 760px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+      color: var(--lumiverse-text, #fff);
+      box-sizing: border-box;
+    ">
+      <!-- Modal Header -->
+      <div style="
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--lumiverse-border);
+        flex-shrink: 0;
+      ">
+        <div style="font-weight: 600; font-size: 14.5px;">
+          Preview Changes (${modifiedFields.length} field${modifiedFields.length === 1 ? '' : 's'} modified)
+        </div>
+        <button id="rs-portal-close-x" style="
+          background: transparent;
+          border: none;
+          color: var(--lumiverse-text-muted, rgba(255, 255, 255, 0.6));
+          font-size: 18px;
+          cursor: pointer;
+          border-radius: 4px;
+          width: 28px;
+          height: 28px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        ">✕</button>
       </div>
 
-      <!-- Scrollable Diff Area -->
-      <div style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 6px;">
-        ${diffCardsHtml}
-      </div>
+      <!-- Modal Body -->
+      <div style="
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 14px 18px;
+        gap: 10px;
+        overflow: hidden;
+        box-sizing: border-box;
+      ">
+        <div style="font-size: 12px; color: var(--lumiverse-text-dim, rgba(255, 255, 255, 0.6)); flex-shrink: 0;">
+          Review replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
+        </div>
 
-      <!-- Pinned Bottom Footer -->
-      <div style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; margin-top: 8px; border-top: 1px solid var(--lumiverse-border);">
-        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 7px 18px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
-        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 7px 20px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
+        <!-- Scrollable Diff Container -->
+        <div style="
+          flex: 1;
+          min-height: 0;
+          overflow-y: auto;
+          padding-right: 6px;
+        ">
+          ${diffCardsHtml}
+        </div>
+
+        <!-- Pinned Actions Row -->
+        <div style="
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+          padding-top: 12px;
+          border-top: 1px solid var(--lumiverse-border);
+          flex-shrink: 0;
+        ">
+          <button id="rs-portal-cancel" style="
+            background: var(--lumiverse-fill-subtle, rgba(255, 255, 255, 0.08));
+            color: var(--lumiverse-text, #fff);
+            border: 1px solid var(--lumiverse-border, rgba(255, 255, 255, 0.2));
+            border-radius: var(--lumiverse-radius, 6px);
+            padding: 7px 18px;
+            font-size: 12.5px;
+            cursor: pointer;
+            font-weight: 500;
+          ">Cancel</button>
+          <button id="rs-portal-apply" style="
+            background: var(--lumiverse-accent, rgb(147, 112, 219));
+            color: var(--lumiverse-accent-fg, #fff);
+            border: 1px solid var(--lumiverse-accent, rgb(147, 112, 219));
+            border-radius: var(--lumiverse-radius, 6px);
+            padding: 7px 22px;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+          ">Apply Changes</button>
+        </div>
       </div>
     </div>
   `
 
-  const cancelBtn = modal.root.querySelector('#rs-modal-cancel') as HTMLButtonElement
-  const applyBtn = modal.root.querySelector('#rs-modal-apply') as HTMLButtonElement
+  document.body.appendChild(overlay)
 
-  cancelBtn.onclick = () => modal.dismiss()
+  const dismiss = () => {
+    overlay.remove()
+    document.removeEventListener('keydown', handleEsc)
+  }
+
+  const handleEsc = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') dismiss()
+  }
+  document.addEventListener('keydown', handleEsc)
+
+  overlay.onclick = (e) => {
+    if (e.target === overlay) dismiss()
+  }
+
+  const closeX = overlay.querySelector('#rs-portal-close-x') as HTMLButtonElement
+  const cancelBtn = overlay.querySelector('#rs-portal-cancel') as HTMLButtonElement
+  const applyBtn = overlay.querySelector('#rs-portal-apply') as HTMLButtonElement
+
+  closeX.onclick = () => dismiss()
+  cancelBtn.onclick = () => dismiss()
 
   applyBtn.onclick = () => {
     onConfirm()
-    modal.dismiss()
+    dismiss()
   }
 
   return true
