@@ -93,6 +93,7 @@ export function showDiffPreviewModal(
     min-height: 0;
     max-height: 100%;
     gap: 10px;
+    overflow: hidden;
   `
 
   // ── Pinned Top Action Bar (Centered) ──
