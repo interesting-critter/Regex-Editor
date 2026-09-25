@@ -69,10 +69,6 @@ export function mountTagFilterControls(
   onFilterChange: (state: TagFilterState) => void
 ): TagFilterMountResult {
   let allCharactersList: CharacterItemWithTags[] = []
-
-  // ── Dropdown height ──
-  // Change this one value to make the Tag Filter boxes taller or shorter.
-  const DROPDOWN_HEIGHT = '26px'
   
   const state: TagFilterState = {
     includeTags: [],
@@ -88,11 +84,11 @@ export function mountTagFilterControls(
 
   // HTML: Slot that hosts the "include tag" multi-select component.
   const incSlot = document.createElement('div')
-incSlot.style.cssText = `flex: 1; min-width: 140px; height: ${DROPDOWN_HEIGHT};`
+incSlot.style.cssText = `flex: 1; min-width: 140px;`
 
   // HTML: Slot that hosts the "exclude tag" multi-select component.
   const excSlot = document.createElement('div')
-excSlot.style.cssText = `flex: 1; min-width: 140px; height: ${DROPDOWN_HEIGHT};`
+excSlot.style.cssText = `flex: 1; min-width: 140px;`
 
   wrap.append(incSlot, excSlot)
   container.appendChild(wrap)
