@@ -610,6 +610,7 @@ export function setup(ctx: SpindleFrontendContext) {
       textarea.value = field.value
       textarea.dataset.fieldId = field.id
       textarea.placeholder = `Enter content here...`
+      textarea.style.display = 'none'
 
       textarea.oninput = () => {
         field.value = textarea.value
