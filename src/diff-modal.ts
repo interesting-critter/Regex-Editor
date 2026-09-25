@@ -17,7 +17,7 @@ function escapeHtml(str: string): string {
 }
 
 /**
- * Word-level token diff engine
+ * Lightweight word-level token diff engine
  */
 function computeWordDiffHtml(oldStr: string, newStr: string): string {
   const tokenize = (s: string) => s.match(/[\w']+|[^\w\s]+|\s+/g) || []
@@ -68,32 +68,11 @@ function computeWordDiffHtml(oldStr: string, newStr: string): string {
   return html
 }
 
-function enforceModalSizing(root: HTMLElement) {
-  let curr: HTMLElement | null = root
-  // Style all parents up to the dialog root
-  while (curr && !curr.matches('body, #root, #__next')) {
-    curr.style.setProperty('overflow', 'hidden', 'important')
-    curr.style.setProperty('display', 'flex', 'important')
-    curr.style.setProperty('flex-direction', 'column', 'important')
-    curr.style.setProperty('min-height', '0', 'important')
-
-    const isDialog =
-      curr.getAttribute('role') === 'dialog' ||
-      curr.tagName === 'DIALOG' ||
-      curr.className.includes('modal') ||
-      curr.className.includes('Dialog')
-
-    if (isDialog) {
-      curr.style.setProperty('width', '85vw', 'important')
-      curr.style.setProperty('max-width', '85vw', 'important')
-      curr.style.setProperty('height', '75vh', 'important')
-      curr.style.setProperty('max-height', '75vh', 'important')
-      break
-    }
-
-    curr.style.setProperty('height', '100%', 'important')
-    curr = curr.parentElement
-  }
+function getUiScale(): number {
+  if (typeof document === 'undefined') return 1
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--lumiverse-ui-scale').trim()
+  const parsed = parseFloat(raw)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
 }
 
 export function showDiffPreviewModal(
@@ -107,19 +86,30 @@ export function showDiffPreviewModal(
     return false
   }
 
+  const scale = getUiScale()
   const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
   const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800
 
+  // Calculate 85% width and 75% height adjusted for --lumiverse-ui-scale
+  const modalWidth = Math.round((viewportWidth * 0.85) / scale)
+  const modalMaxHeight = Math.round((viewportHeight * 0.75) / scale)
+
   const modal = ctx.ui.showModal({
     title: `Preview Changes (${modifiedFields.length} field${modifiedFields.length === 1 ? '' : 's'} modified)`,
-    width: Math.round(viewportWidth * 0.85),
-    maxHeight: Math.round(viewportHeight * 0.75),
+    width: modalWidth,
+    maxHeight: modalMaxHeight,
   })
 
-  // Enforce container expansion
-  enforceModalSizing(modal.root)
-  requestAnimationFrame(() => enforceModalSizing(modal.root))
-  setTimeout(() => enforceModalSizing(modal.root), 50)
+  // Enforce container expansion to 85vw and 75vh
+  const dialogWrapper = modal.root.parentElement
+  if (dialogWrapper) {
+    dialogWrapper.style.width = '85vw'
+    dialogWrapper.style.maxWidth = '85vw'
+    dialogWrapper.style.height = '75vh'
+    dialogWrapper.style.maxHeight = '75vh'
+  }
+
+  modal.root.style.cssText = 'display: flex; flex-direction: column; height: 100%; width: 100%; box-sizing: border-box; overflow: hidden;'
 
   let diffCardsHtml = ''
   for (const field of modifiedFields) {
@@ -130,7 +120,7 @@ export function showDiffPreviewModal(
           <span>${field.label}</span>
           ${field.sublabel ? `<span style="font-size: 11px; color: var(--lumiverse-text-dim); font-weight: normal;">${field.sublabel}</span>` : ''}
         </div>
-        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;">
+        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 380px; overflow-y: auto;">
           ${diffContent}
         </div>
       </div>
@@ -138,21 +128,21 @@ export function showDiffPreviewModal(
   }
 
   modal.root.innerHTML = `
-    <div style="display: flex; flex-direction: column; height: 100%; width: 100%; min-height: 0; box-sizing: border-box; padding: 12px; overflow: hidden; color: var(--lumiverse-text);">
+    <div style="display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--lumiverse-text); box-sizing: border-box;">
       <!-- Pinned Top Header -->
-      <div style="flex-shrink: 0; font-size: 12px; color: var(--lumiverse-text-dim); margin-bottom: 12px;">
-        Review replacements across all fields. Deletions are in <span style="color: #f87171; font-weight: 600;">red</span> and additions in <span style="color: #4ade80; font-weight: 600;">green</span>.
+      <div style="flex-shrink: 0; font-size: 12px; color: var(--lumiverse-text-dim); margin-bottom: 10px;">
+        Review replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
       </div>
 
       <!-- Scrollable Diff Area -->
-      <div style="flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 6px;">
+      <div style="flex: 1 1 0; min-height: 0; overflow-y: auto; padding-right: 6px;">
         ${diffCardsHtml}
       </div>
 
-      <!-- Pinned Bottom Action Footer -->
-      <div style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 10px; padding-top: 14px; margin-top: 8px; border-top: 1px solid var(--lumiverse-border); background: var(--lumiverse-fill);">
-        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 8px 18px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
-        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 8px 22px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
+      <!-- Pinned Bottom Footer -->
+      <div style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; margin-top: 8px; border-top: 1px solid var(--lumiverse-border);">
+        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 7px 18px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
+        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 7px 20px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
       </div>
     </div>
   `
