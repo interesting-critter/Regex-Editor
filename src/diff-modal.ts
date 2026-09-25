@@ -20,12 +20,10 @@ function escapeHtml(str: string): string {
  * Lightweight word-level token diff engine
  */
 function computeWordDiffHtml(oldStr: string, newStr: string): string {
-  // Tokenize by word boundaries, spaces, and punctuation
   const tokenize = (s: string) => s.match(/[\w']+|[^\w\s]+|\s+/g) || []
   const oldTokens = tokenize(oldStr)
   const newTokens = tokenize(newStr)
 
-  // Longest Common Subsequence matrix
   const N = oldTokens.length
   const M = newTokens.length
   const dp: number[][] = Array.from({ length: N + 1 }, () => new Array(M + 1).fill(0))
@@ -78,13 +76,20 @@ export function showDiffPreviewModal(
   const modifiedFields = diffItems.filter((d) => d.oldValue !== d.newValue)
 
   if (modifiedFields.length === 0) {
-    return false // no changes were made
+    return false
   }
+
+  // Calculate 85% width and 75% height of the user's viewport
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
+  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800
+
+  const modalWidth = Math.max(500, Math.round(viewportWidth * 0.85))
+  const modalMaxHeight = Math.max(400, Math.round(viewportHeight * 0.75))
 
   const modal = ctx.ui.showModal({
     title: `Preview Changes (${modifiedFields.length} field${modifiedFields.length === 1 ? '' : 's'} modified)`,
-    width: 680,
-    maxHeight: 560,
+    width: modalWidth,
+    maxHeight: modalMaxHeight,
   })
 
   let diffCardsHtml = ''
@@ -96,7 +101,7 @@ export function showDiffPreviewModal(
           <span>${field.label}</span>
           ${field.sublabel ? `<span style="font-size: 11px; color: var(--lumiverse-text-dim); font-weight: normal;">${field.sublabel}</span>` : ''}
         </div>
-        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto;">
+        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto;">
           ${diffContent}
         </div>
       </div>
@@ -104,18 +109,21 @@ export function showDiffPreviewModal(
   }
 
   modal.root.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 12px; height: 100%; color: var(--lumiverse-text);">
-      <div style="font-size: 12px; color: var(--lumiverse-text-dim);">
-        Review your regex replacements before applying them. Deletions are shown in <span style="color: #f87171;">red</span> and additions in <span style="color: #4ade80;">green</span>.
+    <div style="display: flex; flex-direction: column; height: calc(${modalMaxHeight}px - 70px); min-height: 320px; color: var(--lumiverse-text); box-sizing: border-box;">
+      <!-- Pinned Top Instruction Header -->
+      <div style="flex-shrink: 0; font-size: 12px; color: var(--lumiverse-text-dim); margin-bottom: 10px;">
+        Review your replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
       </div>
 
-      <div style="flex: 1; overflow-y: auto; padding-right: 4px;">
+      <!-- Scrollable Diff Area -->
+      <div style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 6px;">
         ${diffCardsHtml}
       </div>
 
-      <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--lumiverse-border);">
-        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 14px; font-size: 12px; cursor: pointer;">Cancel</button>
-        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 6px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">Apply Changes</button>
+      <!-- Pinned Bottom Action Footer (Never scrolls away) -->
+      <div style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; margin-top: 8px; border-top: 1px solid var(--lumiverse-border);">
+        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 7px 16px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
+        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 7px 18px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
       </div>
     </div>
   `
@@ -131,4 +139,4 @@ export function showDiffPreviewModal(
   }
 
   return true
-            }
+}
