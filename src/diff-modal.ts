@@ -72,12 +72,9 @@ function computeWordDiffHtml(oldStr: string, newStr: string): string {
 export function showDiffPreviewModal(
   ctx: SpindleFrontendContext,
   diffItems: FieldDiffItem[],
-  onConfirm: () => void
+  onConfirm: (approvedFields: FieldDiffItem[]) => void
 ) {
 const modifiedFields = diffItems.filter((d) => d.oldValue !== d.newValue)
-
-// All fields are approved by default.
-const approvedFields = new Set(modifiedFields.map((field) => field.fieldId))
 
 if (modifiedFields.length === 0) {
     return false
@@ -143,13 +140,13 @@ if (modifiedFields.length === 0) {
   const approvedFields = new Set(modifiedFields.map((field) => field.fieldId))
   
   applyBtn.addEventListener('click', () => {
-  const approved = modifiedFields.filter((field) =>
+    const approved = modifiedFields.filter((field) =>
     approvedFields.has(field.fieldId)
   )
 
-  onConfirm(approved)
-  modal.dismiss()
-})
+    onConfirm(approved)
+    modal.dismiss()
+  })
 
   const actionBar = document.createElement('div')
   actionBar.style.cssText = `
