@@ -62,31 +62,37 @@ export function filterCharactersByTags(
 
 export interface TagFilterMountResult {
   state: TagFilterState
-  updateCharacters: (characters: CharacterItemWithTags[]) => void
+  updateTagOptions: (data: any) => void
   destroy: () => void
 }
 
 /**
- * Builds tag options with selected tags pinned to the top,
- * and only co-occurring/available unselected tags below them in alphabetical order.
+ * Builds tag options by:
+ * 1. Pinning currently selected tags to the top.
+ * 2. Showing only tags present on the currently filtered cards.
+ * 3. Sorting unselected tags in alphabetical order.
  */
-function buildFacetedTagOptions(
-  availableTags: string[],
-  selectedTags: string[]
+function buildContextualTagOptions(
+  allCharacters: CharacterItemWithTags[],
+  includeTags: string[],
+  excludeTags: string[],
+  selectedTagsForThisSelect: string[]
 ): Array<{ value: string; label: string }> {
-  const selSet = new Set(selectedTags)
-  const availSet = new Set(availableTags)
+  // If no include filters are active, pool is all non-excluded cards
+  const matchingCards = filterCharactersByTags(allCharacters, includeTags, excludeTags)
+  const availableTagsSet = new Set(extractUniqueTags(matchingCards))
 
-  // 1. Currently selected tags (always visible at top)
-  const selectedList = selectedTags.map((t) => ({ value: t, label: t }))
+  const selectedSet = new Set(selectedTagsForThisSelect)
+  
+  // 1. Pinned selected items (always keep selected visible even if other filters change)
+  const pinnedSelected = Array.from(selectedSet)
 
-  // 2. Unselected tags that exist on the currently filtered cards
-  const unselectedList = availableTags
-    .filter((t) => !selSet.has(t))
+  // 2. Unselected tags that exist on the matching cards
+  const unselectedAvailable = Array.from(availableTagsSet)
+    .filter((t) => !selectedSet.has(t))
     .sort((a, b) => a.localeCompare(b))
-    .map((t) => ({ value: t, label: t }))
 
-  return [...selectedList, ...unselectedList]
+  return [...pinnedSelected, ...unselectedAvailable].map((t) => ({ value: t, label: t }))
 }
 
 export function mountTagFilterControls(
@@ -116,22 +122,22 @@ export function mountTagFilterControls(
   container.appendChild(wrap)
 
   function refreshDropdownOptions() {
-    // 1. Get cards that survive the current filters
-    const matchingCards = filterCharactersByTags(
-      allCharactersList,
-      state.includeTags,
-      state.excludeTags
-    )
-
-    // 2. Extract tags present on those surviving cards
-    const coOccurringTags = extractUniqueTags(matchingCards)
-
-    // 3. Update both multi-selects with pinned selected tags + available co-occurring tags
     incSelect.update({
-      options: buildFacetedTagOptions(coOccurringTags, state.includeTags),
+      options: buildContextualTagOptions(
+        allCharactersList,
+        state.includeTags,
+        state.excludeTags,
+        state.includeTags
+      ),
     })
+
     excSelect.update({
-      options: buildFacetedTagOptions(coOccurringTags, state.excludeTags),
+      options: buildContextualTagOptions(
+        allCharactersList,
+        state.includeTags,
+        state.excludeTags,
+        state.excludeTags
+      ),
     })
   }
 
@@ -163,8 +169,14 @@ export function mountTagFilterControls(
 
   return {
     state,
-    updateCharacters: (characters: CharacterItemWithTags[]) => {
-      allCharactersList = characters
+    updateTagOptions: (data: any) => {
+      if (Array.isArray(data)) {
+        if (data.length > 0 && typeof data[0] === 'object' && 'tags' in data[0]) {
+          allCharactersList = data
+        } else if (data.length > 0 && typeof data[0] === 'string') {
+          allCharactersList = data.map((t) => ({ id: t, name: t, tags: [t] }))
+        }
+      }
       refreshDropdownOptions()
     },
     destroy: () => {
