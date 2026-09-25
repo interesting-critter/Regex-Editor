@@ -892,7 +892,7 @@ export function setup(ctx: SpindleFrontendContext) {
         ctx,
         diffItems,
         (approvedFields) => applyReplaceAll(approvedFields)
-    )
+      )
       if (!opened) scanMatches({ shouldFocus: false })
     } else {
       applyReplaceAll(diffItems)
