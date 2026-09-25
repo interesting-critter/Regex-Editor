@@ -183,15 +183,17 @@ export function showDiffPreviewModal(
       padding: 8px 12px;
       font-weight: 600;
       font-size: 12.5px;
-      border-bottom: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
+      border-bottom: none;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 12px;
+      cursor: pointer;
+      user-select: none;
     `
 
     const label = document.createElement('span')
-    label.textContent = field.label
+    label.textContent = `▶ ${field.label}`
     header.appendChild(label)
 
     if (field.sublabel) {
@@ -216,8 +218,21 @@ export function showDiffPreviewModal(
       word-break: break-word;
       max-height: 280px;
       overflow-y: auto;
+      display: none;
     `
     diffContent.innerHTML = computeWordDiffHtml(field.oldValue, field.newValue)
+
+    header.addEventListener('click', () => {
+    const isOpen = diffContent.style.display !== 'none'
+
+    diffContent.style.display = isOpen ? 'none' : 'block'
+    label.textContent = `${isOpen ? '▶' : '▼'} ${field.label}`
+
+    // Remove the separator when the field is collapsed.
+    header.style.borderBottom = isOpen
+      ? 'none'
+      : '1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2))'
+})
 
     card.append(header, diffContent)
     body.appendChild(card)
