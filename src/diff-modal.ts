@@ -72,7 +72,7 @@ export function showDiffPreviewModal(
   ctx: SpindleFrontendContext,
   diffItems: FieldDiffItem[],
   onConfirm: () => void
-): boolean {
+) {
   const modifiedFields = diffItems.filter((d) => d.oldValue !== d.newValue)
 
   if (modifiedFields.length === 0) {
@@ -89,10 +89,70 @@ export function showDiffPreviewModal(
   shell.style.cssText = `
     display: flex;
     flex-direction: column;
+    height: 100%;
     min-height: 0;
     max-height: 100%;
+    gap: 10px;
+    overflow: hidden;
   `
 
+  // ── Pinned Top Action Bar (Centered) ──
+  const topBar = document.createElement('div')
+  topBar.style.cssText = `
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
+  `
+
+  const cancelBtn = document.createElement('button')
+  cancelBtn.type = 'button'
+  cancelBtn.textContent = 'Cancel'
+  cancelBtn.style.cssText = `
+    background: var(--lumiverse-fill-subtle, rgba(255, 255, 255, 0.08));
+    color: var(--lumiverse-text, rgba(255, 255, 255, 0.9));
+    border: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.3));
+    border-radius: 6px;
+    padding: 7px 20px;
+    font-size: 12.5px;
+    cursor: pointer;
+    font-weight: 500;
+  `
+  cancelBtn.addEventListener('click', () => modal.dismiss())
+
+  const applyBtn = document.createElement('button')
+  applyBtn.type = 'button'
+  applyBtn.textContent = 'Apply Changes'
+  applyBtn.style.cssText = `
+    background: var(--lumiverse-accent, #9370db);
+    color: var(--lumiverse-accent-fg, #ffffff);
+    border: 1px solid var(--lumiverse-accent, #9370db);
+    border-radius: 6px;
+    padding: 7px 24px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  `
+  applyBtn.addEventListener('click', () => {
+    onConfirm()
+    modal.dismiss()
+  })
+
+  const actionBar = document.createElement('div')
+  actionBar.style.cssText = `
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding-top: 10px;
+  `
+  actionBar.append(cancelBtn, applyBtn)
+
+  topBar.appendChild(actionBar)
+
+  // ── Scrollable Diff Body ──
   const body = document.createElement('div')
   body.style.cssText = `
     flex: 1 1 auto;
@@ -133,15 +193,17 @@ export function showDiffPreviewModal(
       padding: 8px 12px;
       font-weight: 600;
       font-size: 12.5px;
-      border-bottom: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
+      border-bottom: none;
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 12px;
+      cursor: pointer;
+      user-select: none;
     `
 
     const label = document.createElement('span')
-    label.textContent = field.label
+    label.textContent = `▶ ${field.label}`
     header.appendChild(label)
 
     if (field.sublabel) {
@@ -166,58 +228,27 @@ export function showDiffPreviewModal(
       word-break: break-word;
       max-height: 280px;
       overflow-y: auto;
+      display: none;
     `
     diffContent.innerHTML = computeWordDiffHtml(field.oldValue, field.newValue)
+
+    header.addEventListener('click', () => {
+    const isOpen = diffContent.style.display !== 'none'
+
+    diffContent.style.display = isOpen ? 'none' : 'block'
+    label.textContent = `${isOpen ? '▶' : '▼'} ${field.label}`
+
+    // Remove the separator when the field is collapsed.
+    header.style.borderBottom = isOpen
+      ? 'none'
+      : '1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2))'
+})
 
     card.append(header, diffContent)
     body.appendChild(card)
   }
 
-  const footer = document.createElement('div')
-  footer.style.cssText = `
-    flex-shrink: 0;
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    padding-top: 14px;
-    border-top: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
-  `
-
-  const cancelBtn = document.createElement('button')
-  cancelBtn.type = 'button'
-  cancelBtn.textContent = 'Cancel'
-  cancelBtn.style.cssText = `
-    background: var(--lumiverse-fill-subtle, rgba(255, 255, 255, 0.08));
-    color: var(--lumiverse-text, rgba(255, 255, 255, 0.9));
-    border: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.3));
-    border-radius: 6px;
-    padding: 7px 18px;
-    font-size: 12.5px;
-    cursor: pointer;
-    font-weight: 500;
-  `
-  cancelBtn.addEventListener('click', () => modal.dismiss())
-
-  const applyBtn = document.createElement('button')
-  applyBtn.type = 'button'
-  applyBtn.textContent = 'Apply Changes'
-  applyBtn.style.cssText = `
-    background: var(--lumiverse-accent, #9370db);
-    color: var(--lumiverse-accent-fg, #ffffff);
-    border: 1px solid var(--lumiverse-accent, #9370db);
-    border-radius: 6px;
-    padding: 7px 22px;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-  `
-  applyBtn.addEventListener('click', () => {
-    onConfirm()
-    modal.dismiss()
-  })
-
-  footer.append(cancelBtn, applyBtn)
-  shell.append(body, footer)
+  shell.append(topBar, body)
   modal.root.appendChild(shell)
 
   return true

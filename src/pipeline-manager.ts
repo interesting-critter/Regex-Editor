@@ -77,27 +77,49 @@ export class PipelineManagerUI {
 
   private renderShell() {
     this.container.innerHTML = `
+      <!-- HTML: Pipeline editor root; vertical layout that contains the entire preset editor. -->
+      <!-- CSS: flex-column stacks the preset controls, metadata, steps, and footer with 10px gaps. -->
       <div style="display: flex; flex-direction: column; gap: 10px;">
+        <!-- HTML: Top control row containing preset selection/creation on the left and save/delete on the right. -->
+        <!-- CSS: rs-row provides horizontal flex layout; space-between separates the two control groups. -->
         <div class="rs-row" style="justify-content: space-between;">
+          <!-- HTML: Preset selector group. -->
           <div class="rs-row" style="flex: 1;">
+            <!-- HTML: Dropdown for choosing an existing pipeline preset. -->
+            <!-- CSS: rs-input gives the shared input appearance; flex:1 lets it consume available width. -->
             <select id="rs-pipe-preset-select" class="rs-input" style="flex: 1;">
+              <!-- HTML: Empty/default option shown before a preset is selected. -->
               <option value="">-- Choose Pipeline Preset --</option>
             </select>
+            <!-- HTML: Creates a new pipeline preset with one initial regex step. -->
             <button class="rs-btn" id="rs-pipe-new-btn">+ New Preset</button>
           </div>
+          <!-- HTML: Preset persistence controls. -->
           <div class="rs-row">
+            <!-- HTML: Deletes the currently selected preset; disabled until a preset is active. -->
+            <!-- CSS: red text visually marks this as a destructive action. -->
             <button class="rs-btn" id="rs-pipe-del-btn" style="color: #f87171;" disabled>Delete</button>
+            <!-- HTML: Saves the currently edited preset to the backend; disabled until a preset is active. -->
             <button class="rs-btn rs-btn-primary" id="rs-pipe-save-btn" disabled>Save Preset</button>
           </div>
         </div>
 
+        <!-- HTML: Preset metadata section containing the editable preset name. -->
+        <!-- CSS: hidden by default; becomes a vertical flex container when a preset is selected/created. -->
         <div id="rs-pipe-meta-box" style="display: none; flex-direction: column; gap: 6px;">
+          <!-- HTML: Text input for naming the pipeline preset. -->
+          <!-- CSS: rs-input supplies the shared input styling; font-weight emphasizes the name. -->
           <input type="text" id="rs-pipe-name-input" class="rs-input" placeholder="Preset Name" style="font-weight: 600;" />
         </div>
 
+        <!-- HTML: Scrollable container where individual regex-step cards are rendered dynamically. -->
+        <!-- CSS: vertical flex layout, 10px gaps, 52vh max height, and vertical scrolling. -->
         <div id="rs-pipe-steps-container" style="display: flex; flex-direction: column; gap: 10px; max-height: 52vh; overflow-y: auto; padding-right: 2px;"></div>
 
+        <!-- HTML: Footer containing the add-step action; hidden until a preset is active. -->
         <div id="rs-pipe-footer" style="display: none;" class="rs-row">
+          <!-- HTML: Adds another regex/replacement step to the active preset. -->
+          <!-- CSS: primary button styling plus full-width layout. -->
           <button class="rs-btn rs-btn-primary" id="rs-pipe-add-step-btn" style="width: 100%;">+ Add Regex Step</button>
         </div>
       </div>
@@ -189,30 +211,45 @@ export class PipelineManagerUI {
     nameInput.value = this.activePreset.name
 
     this.activePreset.steps.forEach((step, idx) => {
+      // HTML: One visual card representing one sequential regex/replacement operation.
       const stepCard = document.createElement('div')
+      // CSS: rs-card supplies the shared card background/border/radius/padding; this inline rule reinforces the border.
       stepCard.className = 'rs-card'
       stepCard.style.cssText = 'border: 1px solid var(--lumiverse-border);'
 
       stepCard.innerHTML = `
+        <!-- HTML: Step header; holds the step number, regex mode, flags, and delete action. -->
+        <!-- CSS: rs-row lays the header contents out horizontally; space-between pushes delete to the far right. -->
         <div class="rs-row" style="justify-content: space-between;">
+          <!-- HTML: Left-side step configuration controls. -->
           <div class="rs-row">
+            <!-- HTML/CSS: Step number label; inline CSS makes it compact, bold, and accent-colored. -->
             <span style="font-weight: 600; font-size: 12px; color: var(--lumiverse-accent);">Step ${idx + 1}</span>
+            <!-- HTML: Toggles whether this step interprets "Find" as a regex or literal text. -->
             <label class="rs-chip ${step.useRegex ? 'active' : ''}" id="rs-step-toggle-regex">.* Regex</label>
+            <!-- HTML: Static label introducing the regex flags. -->
             <span style="font-size: 11px; color: var(--lumiverse-text-dim);">Flags:</span>
+            <!-- HTML: Global flag toggle. -->
             <label class="rs-chip ${step.flags.g ? 'active' : ''}" id="rs-step-flag-g">g</label>
+            <!-- HTML: Case-insensitive flag toggle. -->
             <label class="rs-chip ${step.flags.i ? 'active' : ''}" id="rs-step-flag-i">i</label>
+            <!-- HTML: Multiline flag toggle. -->
             <label class="rs-chip ${step.flags.m ? 'active' : ''}" id="rs-step-flag-m">m</label>
+            <!-- HTML: Dot-matches-newline flag toggle. -->
             <label class="rs-chip ${step.flags.s ? 'active' : ''}" id="rs-step-flag-s">s</label>
           </div>
+          <!-- HTML/CSS: Deletes this step; inline CSS makes the control compact and red. -->
           <button class="rs-btn" id="rs-step-del" style="padding: 2px 6px; font-size: 11px; color: #f87171;" title="Remove Step">✕</button>
         </div>
+        <!-- HTML: Input row containing the pattern to find and the replacement text. -->
         <div class="rs-row">
+          <!-- HTML/CSS: Find-pattern input; rs-input supplies shared styling and flex:1 shares available width. -->
           <input type="text" class="rs-input" id="rs-step-find" placeholder="Find pattern..." style="flex: 1;" value="${escapeHtml(step.find)}" />
+          <!-- HTML/CSS: Replacement-pattern input; same shared styling and flexible width. -->
           <input type="text" class="rs-input" id="rs-step-replace" placeholder="Replace pattern..." style="flex: 1;" value="${escapeHtml(step.replace)}" />
         </div>
       `
 
-      // Step event handlers
       const findInput = stepCard.querySelector('#rs-step-find') as HTMLInputElement
       const replaceInput = stepCard.querySelector('#rs-step-replace') as HTMLInputElement
       const delStepBtn = stepCard.querySelector('#rs-step-del') as HTMLButtonElement

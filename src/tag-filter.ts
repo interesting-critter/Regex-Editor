@@ -33,23 +33,24 @@ export function filterCharactersByTags(
   const excSet = new Set(excludeTags)
 
   return characters.filter((char) => {
-    const charTags = new Set(char.tags || [])
+    const charTags = Array.isArray(char.tags) ? char.tags : []
+    const charTagSet = new Set(charTags)
 
-    // 1. Exclusion check (Takes strict precedence)
+    // 1. Exclusion (Strict: if card has ANY excluded tag, omit it)
     for (const tag of excSet) {
-      if (charTags.has(tag)) return false
+      if (charTagSet.has(tag)) return false
     }
 
-    // 2. Inclusion check (If includeTags specified, must have at least one)
+    // 2. Inclusion (Card must have at least ONE included tag)
     if (incSet.size > 0) {
-      let hasInclude = false
+      let hasAnyIncluded = false
       for (const tag of incSet) {
-        if (charTags.has(tag)) {
-          hasInclude = true
+        if (charTagSet.has(tag)) {
+          hasAnyIncluded = true
           break
         }
       }
-      if (!hasInclude) return false
+      if (!hasAnyIncluded) return false
     }
 
     return true
@@ -58,23 +59,8 @@ export function filterCharactersByTags(
 
 export interface TagFilterMountResult {
   state: TagFilterState
-  updateTagOptions: (tags: string[]) => void
+  setCharacters: (characters: CharacterItemWithTags[]) => void
   destroy: () => void
-}
-
-/**
- * Builds tag options with selected tags pinned to the top,
- * and unselected tags in their original alphabetical order.
- */
-function buildSortedTagOptions(
-  allTags: string[],
-  selectedTags: string[]
-): Array<{ value: string; label: string }> {
-  const selSet = new Set(selectedTags)
-  const selectedList = allTags.filter((t) => selSet.has(t))
-  const unselectedList = allTags.filter((t) => !selSet.has(t))
-
-  return [...selectedList, ...unselectedList].map((t) => ({ value: t, label: t }))
 }
 
 export function mountTagFilterControls(
@@ -82,8 +68,8 @@ export function mountTagFilterControls(
   container: HTMLElement,
   onFilterChange: (state: TagFilterState) => void
 ): TagFilterMountResult {
-  let allTagsList: string[] = []
-
+  let allCharactersList: CharacterItemWithTags[] = []
+  
   const state: TagFilterState = {
     includeTags: [],
     excludeTags: [],
@@ -91,18 +77,50 @@ export function mountTagFilterControls(
 
   container.replaceChildren()
 
+  // HTML: Outer wrapper for the two tag-filter controls; flex-wrap keeps them usable on narrow screens.
   const wrap = document.createElement('div')
+  // CSS (inline): lays the include/exclude controls out horizontally, with wrapping and spacing.
   wrap.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%;'
 
+  // HTML: Slot that hosts the "include tag" multi-select component.
   const incSlot = document.createElement('div')
-  incSlot.style.cssText = 'flex: 1; min-width: 140px;'
+incSlot.style.cssText = `flex: 1; min-width: 140px;`
 
+  // HTML: Slot that hosts the "exclude tag" multi-select component.
   const excSlot = document.createElement('div')
-  excSlot.style.cssText = 'flex: 1; min-width: 140px;'
+excSlot.style.cssText = `flex: 1; min-width: 140px;`
 
   wrap.append(incSlot, excSlot)
   container.appendChild(wrap)
 
+  function refreshDropdownOptions() {
+    const matchingCards = filterCharactersByTags(
+      allCharactersList,
+      state.includeTags,
+      state.excludeTags
+    )
+
+    const availableTags = extractUniqueTags(matchingCards)
+
+    const incSelectedSet = new Set(state.includeTags)
+    const incUnselected = availableTags.filter((t) => !incSelectedSet.has(t))
+    const incOptions = [...state.includeTags, ...incUnselected].map((t) => ({
+      value: t,
+      label: t,
+    }))
+
+    const excSelectedSet = new Set(state.excludeTags)
+    const excUnselected = availableTags.filter((t) => !excSelectedSet.has(t))
+    const excOptions = [...state.excludeTags, ...excUnselected].map((t) => ({
+      value: t,
+      label: t,
+    }))
+
+    incSelect.update({ options: incOptions })
+    excSelect.update({ options: excOptions })
+  }
+
+  // HTML/component: Include-tag multi-select. This becomes the "Filter by Tag (Include)..." control.
   const incSelect: SpindleMultiSelectHandle = ctx.components.mountMultiSelect(incSlot, {
     value: [],
     placeholder: 'Filter by Tag (Include)...',
@@ -111,13 +129,12 @@ export function mountTagFilterControls(
     options: [],
     onChange: (vals) => {
       state.includeTags = vals || []
-      incSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.includeTags),
-      })
+      refreshDropdownOptions()
       onFilterChange(state)
     },
   })
 
+  // HTML/component: Exclude-tag multi-select. This becomes the "Hide by Tag (Exclude)..." control.
   const excSelect: SpindleMultiSelectHandle = ctx.components.mountMultiSelect(excSlot, {
     value: [],
     placeholder: 'Hide by Tag (Exclude)...',
@@ -126,23 +143,16 @@ export function mountTagFilterControls(
     options: [],
     onChange: (vals) => {
       state.excludeTags = vals || []
-      excSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.excludeTags),
-      })
+      refreshDropdownOptions()
       onFilterChange(state)
     },
   })
 
   return {
     state,
-    updateTagOptions: (tags: string[]) => {
-      allTagsList = tags
-      incSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.includeTags),
-      })
-      excSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.excludeTags),
-      })
+    setCharacters: (characters: CharacterItemWithTags[]) => {
+      allCharactersList = characters || []
+      refreshDropdownOptions()
     },
     destroy: () => {
       incSelect.destroy()

@@ -1,7 +1,8 @@
 import type { SpindleFrontendContext, SpindleSelectHandle, SpindleMultiSelectHandle } from 'lumiverse-spindle-types'
 import { showDiffPreviewModal, type FieldDiffItem } from './diff-modal'
+import { PipelineManagerUI, runPipelineOnText } from './pipeline-manager'
+import type { RegexPreset } from './pipeline-types'
 import {
-  extractUniqueTags,
   filterCharactersByTags,
   mountTagFilterControls,
   type CharacterItemWithTags,
@@ -15,7 +16,7 @@ import {
 
 const CHAR_FIELDS = [
   { key: 'first_mes', label: 'First Message' },
-  { key: 'alternate_greetings', label: 'Alternate Greetings' },
+  { key: 'alternate_greetings', label: 'Alt Greetings' },
   { key: 'description', label: 'Description' },
   { key: 'personality', label: 'Personality' },
   { key: 'scenario', label: 'Scenario' },
@@ -25,7 +26,8 @@ const CHAR_FIELDS = [
   { key: 'creator_notes', label: 'Creator Notes' },
 ] as const
 
-type Mode = 'character' | 'character_batch' | 'lorebook' | 'custom'
+type SourceMode = 'character' | 'character_batch' | 'lorebook' | 'custom'
+type TabView = 'editor' | 'pipelines'
 
 interface FieldItem {
   id: string
@@ -48,9 +50,14 @@ function escapeRegExp(str: string): string {
 }
 
 export function setup(ctx: SpindleFrontendContext) {
-  let currentMode: Mode = 'character'
+  let activeTabView: TabView = 'editor'
+  let currentSourceMode: SourceMode = 'character'
+  let isPresetRunMode = false
+
   let rawCharacters: CharacterItemWithTags[] = []
   let worldBooks: Array<{ id: string; name: string }> = []
+  let presets: RegexPreset[] = []
+  let selectedPresetId = ''
 
   let selectedChar: any = null
   let selectedBatchChars: any[] = []
@@ -61,10 +68,9 @@ export function setup(ctx: SpindleFrontendContext) {
   let singleSelectComp: SpindleSelectHandle | null = null
   let multiSelectComp: SpindleMultiSelectHandle | null = null
   let tagFilterComp: TagFilterMountResult | null = null
+  let pipelineUI: PipelineManagerUI | null = null
 
-  // Active fields
   let fields: FieldItem[] = []
-
   const enabledFields = new Set<string>([
     'first_mes',
     'alternate_greetings',
@@ -73,13 +79,14 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-  // Regex, Diff & History
+  // Single Regex & Navigation State
   let useRegex = true
   let previewDiffEnabled = true
   const flags = { g: true, i: false, m: true, s: true }
   let currentMatches: RegexMatch[] = []
   let currentMatchIndex = -1
 
+  // Undo / Redo History Stack
   let historyStack: FieldItem[][] = [[]]
   let historyIndex = 0
   const MAX_HISTORY = 100
@@ -89,126 +96,234 @@ export function setup(ctx: SpindleFrontendContext) {
   const tab = ctx.ui.registerDrawerTab({
     id: 'regex_studio',
     title: 'Regex Studio',
-    shortName: 'Regex',
-    description: 'Multi-field & batch regex editor for cards, lorebooks, and custom text',
+    shortName: 'Rgx Studio',
+    description: 'Multi-field regex & pipeline editor for cards, lorebooks, and custom text',
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
 
   // ── Styles ──
   const removeStyle = ctx.dom.addStyle(`
+    /* CSS: Main Regex Studio wrapper; vertical layout, spacing, padding, and base text styling. */
     .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); }
+    /* CSS: Generic horizontal flex row used throughout the UI; wraps on narrow screens. */
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    /* CSS: Small bold heading used for labels such as "Source:". */
     .rs-header-title { font-weight: 600; font-size: 13.5px; }
+    /* CSS: Shared appearance for text inputs and select controls. */
     .rs-input { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 10px; font-size: 12px; outline: none; box-sizing: border-box; }
+    /* CSS: Focus state for inputs/selects; highlights the active control with the accent color. */
     .rs-input:focus { border-color: var(--lumiverse-accent); }
+    /* CSS: Base button style used for normal actions throughout Regex Studio. */
     .rs-btn { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 5px 10px; font-size: 12px; cursor: pointer; transition: background 0.15s; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+    /* CSS: Hover state for enabled buttons. */
     .rs-btn:hover:not(:disabled) { background: var(--lumiverse-border); }
+    /* CSS: Disabled-button state; dims the button and prevents normal pointer interaction. */
     .rs-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* CSS: Primary-action button style for the currently emphasized action. */
     .rs-btn-primary { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); }
+    /* CSS: Slightly dims a primary button on hover. */
     .rs-btn-primary:hover:not(:disabled) { opacity: 0.9; }
     
+    /* CSS: Pill/chip control used for field filters, regex mode, and regex flags. */
     .rs-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: 12px; cursor: pointer; user-select: none; font-weight: 500; }
+    /* CSS: Active chip state; visually marks a selected field/filter/regex option. */
     .rs-chip.active { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border-color: var(--lumiverse-accent); }
+    /* CSS: Disabled chip state for options unavailable in plain-text mode. */
     .rs-chip.disabled { opacity: 0.4; cursor: not-allowed; }
     
+    /* CSS: Shared bordered panel/card container. */
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    /* CSS: Scrollable stack of editable character/lorebook text fields. */
     .rs-fields-list { display: flex; flex-direction: column; gap: 12px; max-height: 60vh; overflow-y: auto; padding-right: 2px; }
     
+    /* CSS: Individual editable-field panel containing a field header and textarea. */
     .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
-    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--lumiverse-border); }
+    /* CSS: Header strip for each editable field; shows field label and optional sublabel. */
+    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: none; cursor: pointer; user-select: none; }
+    /* CSS: Secondary field metadata such as the card name or lorebook entry ID. */
     .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
     
+    /* CSS: Main editor textarea; fixed starting height, monospace text, and vertical resize support. */
     .rs-field-textarea { width: 100%; min-height: 250px; height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
+    /* CSS: Focus state for an editor textarea; adds a subtle background to show active editing. */
     .rs-field-textarea:focus { background: var(--lumiverse-fill-subtle); }
+    /* CSS: Text-selection highlight; uses the user-selected regex highlight color. */
     .rs-field-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
 
+    /* CSS: Circular color-picker control used to choose the match-selection highlight color. */
     .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
+    /* CSS: Removes WebKit's default padding around the native color swatch. */
     .rs-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+    /* CSS: Makes the native WebKit color swatch fill the circular picker cleanly. */
     .rs-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
+
+    /* CSS: Container for the Editor / Pipelines & Presets navigation tabs. */
+    .rs-nav-tabs { display: flex; border-bottom: 1px solid var(--lumiverse-border); margin-bottom: 4px; }
+    /* CSS: Individual top-level navigation tab; inactive tabs use dim text and a transparent underline. */
+    .rs-nav-tab { padding: 6px 14px; font-weight: 600; font-size: 12.5px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--lumiverse-text-dim); }
+    /* CSS: Active top-level navigation tab; accent text and underline identify the current view. */
+    .rs-nav-tab.active { color: var(--lumiverse-accent); border-bottom-color: var(--lumiverse-accent); }
   `)
 
   // ── Render HTML Shell ──
   tab.root.innerHTML = `
     <div class="rs-container">
-      <div class="rs-row">
-        <label class="rs-header-title">Source:</label>
-        <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character Card</button>
-        <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
-        <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
-        <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
+      <!-- HTML: Top navigation for switching between the text editor and pipeline builder. -->
+      <!-- CSS: .rs-nav-tabs/.rs-nav-tab/.active control layout and active-tab appearance. -->
+      <div class="rs-nav-tabs">
+        <!-- HTML: Opens the main multi-field regex editor view. -->
+        <div class="rs-nav-tab active" id="rs-tab-editor">Editor</div>
+        <!-- HTML: Opens the pipeline/preset management view. -->
+        <div class="rs-nav-tab" id="rs-tab-pipelines">Pipelines & Presets</div>
       </div>
 
-      <!-- Tag Filters Section -->
-      <div id="rs-tag-filters-section" class="rs-card">
-        <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
-        <div id="rs-tag-controls-slot"></div>
-      </div>
-
-      <!-- Selection Section -->
-      <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
-        <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
-        <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
-        <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
-        <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
-      </div>
-
-      <!-- Field Filter Chips -->
-      <div id="rs-fields-filter" class="rs-card">
-        <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
-        <div class="rs-row" id="rs-chips-container"></div>
-      </div>
-
-      <!-- Action Toolbar -->
-      <div class="rs-row" style="justify-content: space-between;">
+      <!-- HTML: TAB VIEW 1 — complete editor workspace. -->
+      <!-- CSS: inline flex-column layout stacks source, filters, regex controls, and fields. -->
+      <div id="rs-view-editor" style="display: flex; flex-direction: column; gap: 10px;">
+        <!-- HTML: Source-mode toolbar; chooses what kind of content Regex Studio edits. -->
         <div class="rs-row">
-          <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
-          <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
+          <!-- HTML: Source label. -->
+          <label class="rs-header-title">Source:</label>
+          <!-- HTML: Edits one character card. -->
+          <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character</button>
+          <!-- HTML: Enables multi-card/batch editing. -->
+          <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
+          <!-- HTML: Edits lorebook/world-book entries. -->
+          <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
+          <!-- HTML: Provides a standalone scratchpad/custom text editor. -->
+          <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
         </div>
-        <div class="rs-row">
-          <button class="rs-btn" id="rs-copy-btn">Copy All</button>
-          <button class="rs-btn" id="rs-reset-btn">Reset All</button>
-          <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
-        </div>
-      </div>
 
-      <!-- Regex Find & Replace Toolbar -->
-      <div class="rs-card">
-        <div class="rs-row">
-          <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find text..." style="flex: 1; min-width: 140px;" />
-          <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace with..." style="flex: 1; min-width: 140px;" />
+        <!-- HTML: Tag filter panel; shown for character and character-batch modes. -->
+        <div id="rs-tag-filters-section" class="rs-card">
+          <!-- HTML/CSS: Section title for include/exclude character-tag filtering. -->
+          <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
+          <!-- HTML: Mount point populated by tag-filter.ts with the two multi-select controls. -->
+          <div id="rs-tag-controls-slot"></div>
         </div>
+
+        <!-- HTML: Content-selection area; receives either a single-select or multi-select control. -->
+        <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
+          <!-- HTML/CSS: Mount point for the current character/lorebook selector or batch multi-select. -->
+          <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
+          <!-- HTML: Batch-only action that selects every currently filtered character. -->
+          <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
+          <!-- HTML: Batch-only action that clears all selected characters. -->
+          <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
+          <!-- HTML: Reloads the available characters/lorebooks from the backend. -->
+          <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
+        </div>
+
+        <!-- HTML: Field-filter panel; controls which character fields are loaded into the editor. -->
+        <div id="rs-fields-filter" class="rs-card">
+          <!-- HTML/CSS: Label explaining that the chips control editable character fields. -->
+          <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
+          <!-- HTML: Dynamic mount point where one chip is created for each CHAR_FIELDS definition. -->
+          <div class="rs-row" id="rs-chips-container"></div>
+        </div>
+
+        <!-- HTML: Main editing action toolbar for history, copying, resetting, and saving. -->
         <div class="rs-row" style="justify-content: space-between;">
           <div class="rs-row">
-            <label class="rs-chip active" id="rs-toggle-regex" title="Toggle Regular Expressions">.* Regex</label>
-            <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 2px;">Flags:</span>
-            <label class="rs-chip active" id="rs-flag-g" title="Global match">g</label>
-            <label class="rs-chip" id="rs-flag-i" title="Case insensitive">i</label>
-            <label class="rs-chip active" id="rs-flag-m" title="Multiline">m</label>
-            <label class="rs-chip active" id="rs-flag-s" title="Dot matches newline">s</label>
-            <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 4px;">Highlight:</span>
-            <input type="color" id="rs-color-picker" class="rs-color-swatch" value="#6d5dfc" title="Change match highlight color" />
+            <!-- HTML: Undo/redo history controls. -->
+            <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
+            <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
           </div>
           <div class="rs-row">
-            <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
-            <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
-            <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
-            <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
+            <!-- HTML: Copies all current field contents to the clipboard. -->
+            <button class="rs-btn" id="rs-copy-btn">Copy All</button>
+            <!-- HTML: Restores the selected source data back into the editor. -->
+            <button class="rs-btn" id="rs-reset-btn">Reset All</button>
+            <!-- HTML: Persists the current edits through the backend. -->
+            <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
+          </div>
+        </div>
+
+        <!-- HTML: Regex/pipeline execution panel. This is the control center for single-regex replacement or preset execution. -->
+        <div class="rs-card" id="rs-regex-card">
+          <div class="rs-row" style="justify-content: space-between;">
+            <div class="rs-row" id="rs-single-regex-flags">
+              <!-- HTML: Toggles regex interpretation versus literal text matching. -->
+              <label class="rs-chip active" id="rs-toggle-regex" title="Toggle Regular Expressions">.* Regex</label>
+              <!-- HTML/CSS: Label introducing the regex flags. -->
+              <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 2px;">Flags:</span>
+              <!-- HTML: Global-match flag toggle. -->
+              <label class="rs-chip active" id="rs-flag-g" title="Global match">g</label>
+              <!-- HTML: Case-insensitive flag toggle. -->
+              <label class="rs-chip" id="rs-flag-i" title="Case insensitive">i</label>
+              <!-- HTML: Multiline flag toggle. -->
+              <label class="rs-chip active" id="rs-flag-m" title="Multiline">m</label>
+              <!-- HTML: Dot-matches-newline flag toggle. -->
+              <label class="rs-chip active" id="rs-flag-s" title="Dot matches newline">s</label>
+              <!-- HTML/CSS: Label for the match-highlight color setting. -->
+              <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 4px;">Highlight:</span>
+              <!-- HTML: Native color picker used to change the selection/highlight color. -->
+              <!-- CSS: .rs-color-swatch turns the native picker into a small circular swatch. -->
+              <input type="color" id="rs-color-picker" class="rs-color-swatch" value="#6d5dfc" title="Change match highlight color" />
+            </div>
+
+            <!-- HTML/CSS: Switches the execution panel between single-regex mode and preset/pipeline mode. -->
+            <button class="rs-btn" id="rs-toggle-mode-btn" style="font-weight: 600; font-size: 11px;">⇄ Presets</button>
+          </div>
+
+          <!-- HTML: Single-regex input row; hidden when preset-run mode is active. -->
+          <div id="rs-single-inputs-row" class="rs-row">
+            <!-- HTML/CSS: Regex/literal search pattern input. -->
+            <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find text..." style="flex: 1; min-width: 140px;" />
+            <!-- HTML/CSS: Replacement text or replacement expression input. -->
+            <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace with..." style="flex: 1; min-width: 140px;" />
+          </div>
+
+          <!-- HTML: Preset-runner row; hidden until the user switches from single-regex mode. -->
+          <div id="rs-preset-inputs-row" class="rs-row" style="display: none;">
+            <!-- HTML/CSS: Dropdown for selecting which saved pipeline to run against the current fields. -->
+            <select id="rs-runner-preset-select" class="rs-input" style="flex: 1;">
+              <option value="">-- Choose Pipeline Preset to Run --</option>
+            </select>
+            <!-- HTML: Jumps to the pipeline builder for editing the selected preset. -->
+            <button class="rs-btn" id="rs-goto-pipeline-btn" title="Open in Pipeline Editor">Edit Preset</button>
+          </div>
+
+          <!-- HTML: Bottom execution/navigation toolbar. -->
+          <div class="rs-row" style="justify-content: flex-end;">
+            <div id="rs-single-match-nav" class="rs-row" style="margin-right: auto;">
+              <!-- HTML/CSS: Displays current match position/count. -->
+              <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
+              <!-- HTML: Moves to the previous regex match. -->
+              <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
+              <!-- HTML: Moves to the next regex match. -->
+              <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
+              <!-- HTML: Replaces only the currently selected match. -->
+              <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
+            </div>
+            
+            <!-- HTML: Applies the replacement to every matching occurrence across all active fields, or runs a pipeline in preset mode. -->
             <button class="rs-btn rs-btn-primary" id="rs-replace-all-btn">Replace All</button>
+            <!-- HTML/CSS: Toggles the before/after diff confirmation step. -->
             <label class="rs-chip active" id="rs-toggle-diff" title="Show diff preview before applying Replace All" style="margin-left: 4px;">Diff Preview</label>
           </div>
         </div>
-      </div>
 
-      <!-- Multi-Field Text Editor Area -->
-      <div id="rs-fields-container" class="rs-fields-list">
-        <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
-          Choose a Character Card or Lorebook above to display editable fields.
+        <!-- HTML: Scrollable container holding one editable text panel per active character/lorebook field. -->
+        <div id="rs-fields-container" class="rs-fields-list">
+          <!-- HTML/CSS: Empty-state message shown before a source/field selection is made. -->
+          <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
+            Choose a Character Card or Lorebook above to display editable fields.
+          </div>
         </div>
       </div>
+
+      <!-- HTML: TAB VIEW 2 — pipeline/preset builder mount point. PipelineManagerUI renders into this element. -->
+      <div id="rs-view-pipelines" style="display: none;"></div>
     </div>
   `
 
-  // ── Elements ──
+  // ── Element Handles ──
+  const tabEditor = tab.root.querySelector('#rs-tab-editor') as HTMLElement
+  const tabPipelines = tab.root.querySelector('#rs-tab-pipelines') as HTMLElement
+  const viewEditor = tab.root.querySelector('#rs-view-editor') as HTMLElement
+  const viewPipelines = tab.root.querySelector('#rs-view-pipelines') as HTMLElement
+
   const modeCharBtn = tab.root.querySelector('#rs-mode-char') as HTMLButtonElement
   const modeBatchBtn = tab.root.querySelector('#rs-mode-batch') as HTMLButtonElement
   const modeLoreBtn = tab.root.querySelector('#rs-mode-lore') as HTMLButtonElement
@@ -222,6 +337,15 @@ export function setup(ctx: SpindleFrontendContext) {
   const refreshBtn = tab.root.querySelector('#rs-refresh-btn') as HTMLButtonElement
   const fieldsFilterCard = tab.root.querySelector('#rs-fields-filter') as HTMLElement
   const chipsContainer = tab.root.querySelector('#rs-chips-container') as HTMLElement
+
+  const toggleModeBtn = tab.root.querySelector('#rs-toggle-mode-btn') as HTMLButtonElement
+  const singleFlagsRow = tab.root.querySelector('#rs-single-regex-flags') as HTMLElement
+  const singleInputsRow = tab.root.querySelector('#rs-single-inputs-row') as HTMLElement
+  const singleMatchNav = tab.root.querySelector('#rs-single-match-nav') as HTMLElement
+  const presetInputsRow = tab.root.querySelector('#rs-preset-inputs-row') as HTMLElement
+  const runnerPresetSelect = tab.root.querySelector('#rs-runner-preset-select') as HTMLSelectElement
+  const gotoPipelineBtn = tab.root.querySelector('#rs-goto-pipeline-btn') as HTMLButtonElement
+
   const regexFindInput = tab.root.querySelector('#rs-regex-find') as HTMLInputElement
   const regexReplaceInput = tab.root.querySelector('#rs-regex-replace') as HTMLInputElement
   const regexToggleBtn = tab.root.querySelector('#rs-toggle-regex') as HTMLElement
@@ -236,13 +360,63 @@ export function setup(ctx: SpindleFrontendContext) {
   const replaceOneBtn = tab.root.querySelector('#rs-replace-one-btn') as HTMLButtonElement
   const replaceAllBtn = tab.root.querySelector('#rs-replace-all-btn') as HTMLButtonElement
   const fieldsContainer = tab.root.querySelector('#rs-fields-container') as HTMLElement
+
   const undoBtn = tab.root.querySelector('#rs-undo-btn') as HTMLButtonElement
   const redoBtn = tab.root.querySelector('#rs-redo-btn') as HTMLButtonElement
   const copyBtn = tab.root.querySelector('#rs-copy-btn') as HTMLButtonElement
   const resetBtn = tab.root.querySelector('#rs-reset-btn') as HTMLButtonElement
   const saveBtn = tab.root.querySelector('#rs-save-btn') as HTMLButtonElement
 
-  // ── History Helpers ──
+  // Initialize Pipeline UI
+  pipelineUI = new PipelineManagerUI(ctx, viewPipelines)
+
+  // ── Switch Main Drawer Tabs ──
+  function switchTabView(view: TabView) {
+    activeTabView = view
+    tabEditor.classList.toggle('active', view === 'editor')
+    tabPipelines.classList.toggle('active', view === 'pipelines')
+    viewEditor.style.display = view === 'editor' ? 'flex' : 'none'
+    viewPipelines.style.display = view === 'pipelines' ? 'flex' : 'none'
+  }
+
+  tabEditor.onclick = () => switchTabView('editor')
+  tabPipelines.onclick = () => switchTabView('pipelines')
+
+  gotoPipelineBtn.onclick = () => {
+    if (selectedPresetId) pipelineUI?.selectPresetById(selectedPresetId)
+    switchTabView('pipelines')
+  }
+
+  // ── Switch Single Regex vs Preset Runner ──
+  function setPresetRunMode(enabled: boolean) {
+    isPresetRunMode = enabled
+    toggleModeBtn.textContent = isPresetRunMode ? '⇄ Switch to Single Regex' : '⇄ Switch to Presets'
+    singleFlagsRow.style.visibility = isPresetRunMode ? 'hidden' : 'visible'
+    singleInputsRow.style.display = isPresetRunMode ? 'none' : 'flex'
+    singleMatchNav.style.display = isPresetRunMode ? 'none' : 'flex'
+    presetInputsRow.style.display = isPresetRunMode ? 'flex' : 'none'
+    replaceAllBtn.textContent = isPresetRunMode ? 'Run Pipeline' : 'Replace All'
+    if (!isPresetRunMode) scanMatches({ shouldFocus: false })
+  }
+
+  toggleModeBtn.onclick = () => setPresetRunMode(!isPresetRunMode)
+
+  runnerPresetSelect.onchange = () => {
+    selectedPresetId = runnerPresetSelect.value
+  }
+
+  function updateRunnerPresetDropdown() {
+    runnerPresetSelect.innerHTML = '<option value="">-- Choose Pipeline Preset to Run --</option>'
+    presets.forEach((p) => {
+      const opt = document.createElement('option')
+      opt.value = p.id
+      opt.textContent = `${p.name} (${p.steps.length} steps)`
+      runnerPresetSelect.appendChild(opt)
+    })
+    if (selectedPresetId) runnerPresetSelect.value = selectedPresetId
+  }
+
+  // ── Undo / Redo History Stack ──
   function cloneFields(arr: FieldItem[]): FieldItem[] {
     return arr.map((f) => ({ ...f }))
   }
@@ -309,7 +483,7 @@ export function setup(ctx: SpindleFrontendContext) {
     multiSelectComp = null
     selectSlot.replaceChildren()
 
-    if (currentMode === 'character_batch') {
+    if (currentSourceMode === 'character_batch') {
       multiSelectComp = ctx.components.mountMultiSelect(selectSlot, {
         value: selectedBatchIds,
         placeholder: 'Search and choose cards for Batch...',
@@ -330,16 +504,16 @@ export function setup(ctx: SpindleFrontendContext) {
     } else {
       singleSelectComp = ctx.components.mountSelect(selectSlot, {
         value: selectedItemId,
-        placeholder: currentMode === 'character' ? 'Choose Character...' : 'Choose Lorebook...',
+        placeholder: currentSourceMode === 'character' ? 'Choose Character...' : 'Choose Lorebook...',
         searchPlaceholder: 'Search by name...',
         searchThreshold: 1,
         options: [],
         onChange: (id) => {
           selectedItemId = id || ''
           if (!selectedItemId) return
-          if (currentMode === 'character') {
+          if (currentSourceMode === 'character') {
             ctx.sendToBackend({ type: 'get_character', characterId: selectedItemId })
-          } else if (currentMode === 'lorebook') {
+          } else if (currentSourceMode === 'lorebook') {
             ctx.sendToBackend({ type: 'get_world_book', worldBookId: selectedItemId })
           }
         },
@@ -349,6 +523,8 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   // ── Field Filter Chips ──
+  // HTML: One field-selection chip is generated for every entry in CHAR_FIELDS.
+  // CSS: .rs-chip/.rs-chip.active provide the pill appearance and selected state.
   CHAR_FIELDS.forEach((f) => {
     const chip = document.createElement('span')
     chip.className = `rs-chip ${enabledFields.has(f.key) ? 'active' : ''}`
@@ -361,8 +537,8 @@ export function setup(ctx: SpindleFrontendContext) {
         enabledFields.add(f.key)
         chip.classList.add('active')
       }
-      if (currentMode === 'character' && selectedChar) buildCharacterFields()
-      else if (currentMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
+      if (currentSourceMode === 'character' && selectedChar) buildCharacterFields()
+      else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
     }
     chipsContainer.appendChild(chip)
   })
@@ -373,7 +549,7 @@ export function setup(ctx: SpindleFrontendContext) {
     diffToggleBtn.classList.toggle('active', previewDiffEnabled)
   }
 
-  // ── Regex Toggle & Flags ──
+  // ── Single Regex Toggle & Flags ──
   function updateRegexModeUI() {
     regexToggleBtn.classList.toggle('active', useRegex)
     regexFindInput.placeholder = useRegex ? 'Find Regex (e.g. \\*[\\s\\S]*?\\*)' : 'Find plain text...'
@@ -406,28 +582,35 @@ export function setup(ctx: SpindleFrontendContext) {
     if (fields.length === 0) {
       fieldsContainer.innerHTML = `
         <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
-          ${currentMode === 'custom' ? 'Type in the box below.' : 'No active cards or fields selected.'}
+          ${currentSourceMode === 'custom' ? 'Type in the box below.' : 'No active cards or fields selected.'}
         </div>
       `
       return
     }
 
     fields.forEach((field) => {
+      // HTML: One editable field panel generated from the current source data.
+      // CSS: .rs-field-box supplies the bordered card/panel appearance.
       const box = document.createElement('div')
       box.className = 'rs-field-box'
 
+      // HTML: Field header containing the human-readable field name and optional metadata.
+      // CSS: .rs-field-header creates the compact header strip and .rs-field-sub styles its secondary text.
       const header = document.createElement('div')
       header.className = 'rs-field-header'
       header.innerHTML = `
-        <span>${field.label}</span>
+        <span>▶ ${field.label}</span>
         ${field.sublabel ? `<span class="rs-field-sub">${field.sublabel}</span>` : ''}
       `
 
+      // HTML: Editable text area containing the actual character/lorebook/custom text value.
+      // CSS: .rs-field-textarea controls typography, dimensions, selection color, and resize behavior.
       const textarea = document.createElement('textarea')
       textarea.className = 'rs-field-textarea'
       textarea.value = field.value
       textarea.dataset.fieldId = field.id
       textarea.placeholder = `Enter content here...`
+      textarea.style.display = 'none'
 
       textarea.oninput = () => {
         field.value = textarea.value
@@ -438,6 +621,21 @@ export function setup(ctx: SpindleFrontendContext) {
           pushHistory(fields)
         }, 600)
       }
+
+    header.addEventListener('click', () => {
+      const isOpen = textarea.style.display !== 'none'
+
+      textarea.style.display = isOpen ? 'none' : 'block'
+
+      const labelSpan = header.querySelector('span')
+      if (labelSpan) {
+      labelSpan.textContent = `${isOpen ? '▶' : '▼'} ${field.label}`
+     }
+
+      header.style.borderBottom = isOpen
+        ? '1px solid var(--lumiverse-border)'
+        : 'none'
+    })
 
       box.appendChild(header)
       box.appendChild(textarea)
@@ -523,7 +721,7 @@ export function setup(ctx: SpindleFrontendContext) {
     resetHistory(fields)
   }
 
-  // ── Regex Engine ──
+  // ── Single Regex Matching Engine ──
   function getActiveRegExp(): RegExp | null {
     const pattern = regexFindInput.value
     if (!pattern) return null
@@ -543,6 +741,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function scanMatches(opts: { shouldFocus?: boolean; preserveIndex?: boolean } = {}) {
+    if (isPresetRunMode) return
     const rx = getActiveRegExp()
     currentMatches = []
 
@@ -644,9 +843,7 @@ export function setup(ctx: SpindleFrontendContext) {
   function applyReplaceAll(diffItems: FieldDiffItem[]) {
     diffItems.forEach((diff) => {
       const field = fields.find((f) => f.id === diff.fieldId)
-      if (field) {
-        field.value = diff.newValue
-      }
+      if (field) field.value = diff.newValue
     })
 
     updateDomTextareasFromState()
@@ -655,38 +852,52 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function handleReplaceAllClick() {
-    const rx = getActiveRegExp()
-    if (!rx || fields.length === 0) return
+    if (fields.length === 0) return
 
-    const replaceStr = regexReplaceInput.value
+    let diffItems: FieldDiffItem[] = []
 
-    const diffItems: FieldDiffItem[] = fields.map((field) => {
-      const newValue = useRegex
-        ? field.value.replace(rx, replaceStr)
-        : field.value.replace(rx, () => replaceStr)
+    if (isPresetRunMode) {
+      const preset = presets.find((p) => p.id === runnerPresetSelect.value)
+      if (!preset || preset.steps.length === 0) return
 
-      return {
+      diffItems = fields.map((field) => ({
         fieldId: field.id,
         label: field.label,
         sublabel: field.sublabel,
         oldValue: field.value,
-        newValue,
-      }
-    })
+        newValue: runPipelineOnText(field.value, preset.steps),
+      }))
+    } else {
+      const rx = getActiveRegExp()
+      if (!rx) return
+      const replaceStr = regexReplaceInput.value
+
+      diffItems = fields.map((field) => {
+        const newValue = useRegex
+          ? field.value.replace(rx, replaceStr)
+          : field.value.replace(rx, () => replaceStr)
+
+        return {
+          fieldId: field.id,
+          label: field.label,
+          sublabel: field.sublabel,
+          oldValue: field.value,
+          newValue,
+        }
+      })
+    }
 
     if (previewDiffEnabled) {
       const opened = showDiffPreviewModal(ctx, diffItems, () => applyReplaceAll(diffItems))
-      if (!opened) {
-        scanMatches({ shouldFocus: false })
-      }
+      if (!opened) scanMatches({ shouldFocus: false })
     } else {
       applyReplaceAll(diffItems)
     }
   }
 
-  // ── Mode Switching & Dropdowns ──
-  function setMode(mode: Mode) {
-    currentMode = mode
+  // ── Source Mode Switching ──
+  function setSourceMode(mode: SourceMode) {
+    currentSourceMode = mode
     modeCharBtn.className = `rs-btn ${mode === 'character' ? 'rs-btn-primary' : ''}`
     modeBatchBtn.className = `rs-btn ${mode === 'character_batch' ? 'rs-btn-primary' : ''}`
     modeLoreBtn.className = `rs-btn ${mode === 'lorebook' ? 'rs-btn-primary' : ''}`
@@ -726,21 +937,21 @@ export function setup(ctx: SpindleFrontendContext) {
   function updateSelectOptions() {
     const filteredChars = getFilteredCharacters()
 
-    if (currentMode === 'character') {
+    if (currentSourceMode === 'character') {
       singleSelectComp?.update({
         value: selectedItemId,
         placeholder: `Choose from ${filteredChars.length} characters...`,
         searchPlaceholder: 'Search character name...',
         options: filteredChars.map((c) => ({ value: c.id, label: c.name })),
       })
-    } else if (currentMode === 'character_batch') {
+    } else if (currentSourceMode === 'character_batch') {
       multiSelectComp?.update({
         value: selectedBatchIds,
         placeholder: `Select cards (${selectedBatchIds.length}/${filteredChars.length} selected)...`,
         searchPlaceholder: 'Search characters for batch...',
         options: filteredChars.map((c) => ({ value: c.id, label: c.name })),
       })
-    } else if (currentMode === 'lorebook') {
+    } else if (currentSourceMode === 'lorebook') {
       singleSelectComp?.update({
         value: selectedItemId,
         placeholder: `Choose from ${worldBooks.length} lorebooks...`,
@@ -751,9 +962,9 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function fetchList() {
-    if (currentMode === 'character' || currentMode === 'character_batch') {
+    if (currentSourceMode === 'character' || currentSourceMode === 'character_batch') {
       ctx.sendToBackend({ type: 'list_characters' })
-    } else if (currentMode === 'lorebook') {
+    } else if (currentSourceMode === 'lorebook') {
       ctx.sendToBackend({ type: 'list_world_books' })
     }
   }
@@ -778,10 +989,10 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   // ── Event Handlers ──
-  modeCharBtn.onclick = () => setMode('character')
-  modeBatchBtn.onclick = () => setMode('character_batch')
-  modeLoreBtn.onclick = () => setMode('lorebook')
-  modeCustomBtn.onclick = () => setMode('custom')
+  modeCharBtn.onclick = () => setSourceMode('character')
+  modeBatchBtn.onclick = () => setSourceMode('character_batch')
+  modeLoreBtn.onclick = () => setSourceMode('lorebook')
+  modeCustomBtn.onclick = () => setSourceMode('custom')
   refreshBtn.onclick = () => fetchList()
 
   regexFindInput.oninput = () => scanMatches({ shouldFocus: false })
@@ -803,9 +1014,9 @@ export function setup(ctx: SpindleFrontendContext) {
   replaceAllBtn.onclick = () => handleReplaceAllClick()
 
   resetBtn.onclick = () => {
-    if (currentMode === 'character' && selectedChar) buildCharacterFields()
-    else if (currentMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
-    else if (currentMode === 'lorebook') buildWorldBookFields()
+    if (currentSourceMode === 'character' && selectedChar) buildCharacterFields()
+    else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
+    else if (currentSourceMode === 'lorebook') buildWorldBookFields()
     else buildCustomField()
   }
 
@@ -815,7 +1026,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   saveBtn.onclick = () => {
-    if (currentMode === 'character' && selectedChar) {
+    if (currentSourceMode === 'character' && selectedChar) {
       const patch: Record<string, any> = {}
       const altGreetings: string[] = []
 
@@ -837,13 +1048,13 @@ export function setup(ctx: SpindleFrontendContext) {
         name: selectedChar.name,
         patch,
       })
-    } else if (currentMode === 'character_batch' && selectedBatchChars.length > 0) {
+    } else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) {
       const updates = assembleBatchPatches(fields as BatchFieldItem[], enabledFields)
       ctx.sendToBackend({
         type: 'save_batch_characters',
         updates,
       })
-    } else if (currentMode === 'lorebook' && selectedItemId) {
+    } else if (currentSourceMode === 'lorebook' && selectedItemId) {
       const updates = fields.map((f) => ({ id: f.id, content: f.value }))
       ctx.sendToBackend({
         type: 'save_world_book_entries',
@@ -856,10 +1067,16 @@ export function setup(ctx: SpindleFrontendContext) {
   // ── Backend Message Handling ──
   const unsubMsg = ctx.onBackendMessage((payload: any) => {
     switch (payload.type) {
+      case 'presets_loaded': {
+        presets = payload.presets || []
+        pipelineUI?.setPresets(presets)
+        updateRunnerPresetDropdown()
+        break
+      }
+
       case 'characters_list': {
         rawCharacters = payload.characters || []
-        const uniqueTags = extractUniqueTags(rawCharacters)
-        tagFilterComp?.updateTagOptions(uniqueTags)
+        tagFilterComp?.setCharacters(rawCharacters)
         updateSelectOptions()
         break
       }
@@ -904,6 +1121,7 @@ export function setup(ctx: SpindleFrontendContext) {
   // Initial load
   mountCurrentSelect()
   updateRegexModeUI()
+  ctx.sendToBackend({ type: 'load_presets' })
   fetchList()
 
   // ── Teardown ──
