@@ -68,13 +68,6 @@ function computeWordDiffHtml(oldStr: string, newStr: string): string {
   return html
 }
 
-function getUiScale(): number {
-  if (typeof document === 'undefined') return 1
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--lumiverse-ui-scale').trim()
-  const parsed = parseFloat(raw)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
-}
-
 export function showDiffPreviewModal(
   ctx: SpindleFrontendContext,
   diffItems: FieldDiffItem[],
@@ -86,41 +79,35 @@ export function showDiffPreviewModal(
     return false
   }
 
-  const scale = getUiScale()
-  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
-  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800
-
-  // Calculate 85% width and 75% height adjusted for --lumiverse-ui-scale
-  const modalWidth = Math.round((viewportWidth * 0.85) / scale)
-  const modalMaxHeight = Math.round((viewportHeight * 0.75) / scale)
+  const targetWidth = typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.85) : 900
+  const targetHeight = typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.78) : 700
 
   const modal = ctx.ui.showModal({
     title: `Preview Changes (${modifiedFields.length} field${modifiedFields.length === 1 ? '' : 's'} modified)`,
-    width: modalWidth,
-    maxHeight: modalMaxHeight,
+    width: targetWidth,
+    maxHeight: targetHeight,
   })
 
-  // Enforce container expansion to 85vw and 75vh
-  const dialogWrapper = modal.root.parentElement
-  if (dialogWrapper) {
-    dialogWrapper.style.width = '85vw'
-    dialogWrapper.style.maxWidth = '85vw'
-    dialogWrapper.style.height = '75vh'
-    dialogWrapper.style.maxHeight = '75vh'
+  // Ensure outer dialog expands to 85vw if the host wrapper is constrained
+  let parent = modal.root.parentElement
+  while (parent && parent !== document.body) {
+    if (parent.style) {
+      parent.style.maxWidth = '88vw'
+      parent.style.width = '85vw'
+    }
+    parent = parent.parentElement
   }
-
-  modal.root.style.cssText = 'display: flex; flex-direction: column; height: 100%; width: 100%; box-sizing: border-box; overflow: hidden;'
 
   let diffCardsHtml = ''
   for (const field of modifiedFields) {
     const diffContent = computeWordDiffHtml(field.oldValue, field.newValue)
     diffCardsHtml += `
-      <div style="background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); overflow: hidden; margin-bottom: 12px; flex-shrink: 0;">
+      <div style="background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); overflow: hidden; margin-bottom: 12px;">
         <div style="background: var(--lumiverse-fill-subtle); padding: 8px 12px; font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--lumiverse-border); display: flex; justify-content: space-between; align-items: center;">
           <span>${field.label}</span>
           ${field.sublabel ? `<span style="font-size: 11px; color: var(--lumiverse-text-dim); font-weight: normal;">${field.sublabel}</span>` : ''}
         </div>
-        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 380px; overflow-y: auto;">
+        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow-y: auto;">
           ${diffContent}
         </div>
       </div>
@@ -128,19 +115,19 @@ export function showDiffPreviewModal(
   }
 
   modal.root.innerHTML = `
-    <div style="display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--lumiverse-text); box-sizing: border-box;">
-      <!-- Pinned Top Header -->
-      <div style="flex-shrink: 0; font-size: 12px; color: var(--lumiverse-text-dim); margin-bottom: 10px;">
+    <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; color: var(--lumiverse-text); box-sizing: border-box;">
+      <!-- Top Instruction Header -->
+      <div style="font-size: 12px; color: var(--lumiverse-text-dim);">
         Review replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
       </div>
 
       <!-- Scrollable Diff Area -->
-      <div style="flex: 1 1 0; min-height: 0; overflow-y: auto; padding-right: 6px;">
+      <div style="max-height: 52vh; min-height: 240px; overflow-y: auto; padding-right: 6px;">
         ${diffCardsHtml}
       </div>
 
-      <!-- Pinned Bottom Footer -->
-      <div style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; margin-top: 8px; border-top: 1px solid var(--lumiverse-border);">
+      <!-- Pinned Bottom Action Footer -->
+      <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--lumiverse-border);">
         <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 7px 18px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
         <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 7px 20px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
       </div>
