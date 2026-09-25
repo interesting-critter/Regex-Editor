@@ -27,6 +27,7 @@ export function extractUniqueTags(characters: CharacterItemWithTags[]): string[]
 /**
  * Filters characters based on include and exclude tags.
  * Exclusion takes strict precedence: if a card matches ANY excluded tag, it is omitted.
+ * Inclusion checks if the card has ANY of the included tags.
  */
 export function filterCharactersByTags(
   characters: CharacterItemWithTags[],
@@ -37,23 +38,24 @@ export function filterCharactersByTags(
   const excSet = new Set(excludeTags)
 
   return characters.filter((char) => {
-    const charTags = new Set(char.tags || [])
+    const charTags = Array.isArray(char.tags) ? char.tags : []
+    const charTagSet = new Set(charTags)
 
     // 1. Exclusion check (Takes strict precedence)
     for (const tag of excSet) {
-      if (charTags.has(tag)) return false
+      if (charTagSet.has(tag)) return false
     }
 
-    // 2. Inclusion check (If includeTags specified, must have at least one)
+    // 2. Inclusion check (Card must have at least ONE included tag)
     if (incSet.size > 0) {
-      let hasInclude = false
+      let hasAnyIncluded = false
       for (const tag of incSet) {
-        if (charTags.has(tag)) {
-          hasInclude = true
+        if (charTagSet.has(tag)) {
+          hasAnyIncluded = true
           break
         }
       }
-      if (!hasInclude) return false
+      if (!hasAnyIncluded) return false
     }
 
     return true
@@ -62,37 +64,8 @@ export function filterCharactersByTags(
 
 export interface TagFilterMountResult {
   state: TagFilterState
-  updateTagOptions: (data: any) => void
+  setCharacters: (characters: CharacterItemWithTags[]) => void
   destroy: () => void
-}
-
-/**
- * Builds tag options by:
- * 1. Pinning currently selected tags to the top.
- * 2. Showing only tags present on the currently filtered cards.
- * 3. Sorting unselected tags in alphabetical order.
- */
-function buildContextualTagOptions(
-  allCharacters: CharacterItemWithTags[],
-  includeTags: string[],
-  excludeTags: string[],
-  selectedTagsForThisSelect: string[]
-): Array<{ value: string; label: string }> {
-  // If no include filters are active, pool is all non-excluded cards
-  const matchingCards = filterCharactersByTags(allCharacters, includeTags, excludeTags)
-  const availableTagsSet = new Set(extractUniqueTags(matchingCards))
-
-  const selectedSet = new Set(selectedTagsForThisSelect)
-  
-  // 1. Pinned selected items (always keep selected visible even if other filters change)
-  const pinnedSelected = Array.from(selectedSet)
-
-  // 2. Unselected tags that exist on the matching cards
-  const unselectedAvailable = Array.from(availableTagsSet)
-    .filter((t) => !selectedSet.has(t))
-    .sort((a, b) => a.localeCompare(b))
-
-  return [...pinnedSelected, ...unselectedAvailable].map((t) => ({ value: t, label: t }))
 }
 
 export function mountTagFilterControls(
@@ -122,23 +95,34 @@ export function mountTagFilterControls(
   container.appendChild(wrap)
 
   function refreshDropdownOptions() {
-    incSelect.update({
-      options: buildContextualTagOptions(
-        allCharactersList,
-        state.includeTags,
-        state.excludeTags,
-        state.includeTags
-      ),
-    })
+    // 1. Find all cards matching the current criteria
+    const matchingCards = filterCharactersByTags(
+      allCharactersList,
+      state.includeTags,
+      state.excludeTags
+    )
 
-    excSelect.update({
-      options: buildContextualTagOptions(
-        allCharactersList,
-        state.includeTags,
-        state.excludeTags,
-        state.excludeTags
-      ),
-    })
+    // 2. Extract union of all tags present on any of the matching cards
+    const availableTags = extractUniqueTags(matchingCards)
+
+    // 3. Include Select Options: Selected tags pinned to top, remaining available tags below
+    const incSelectedSet = new Set(state.includeTags)
+    const incUnselected = availableTags.filter((t) => !incSelectedSet.has(t))
+    const incOptions = [...state.includeTags, ...incUnselected].map((t) => ({
+      value: t,
+      label: t,
+    }))
+
+    // 4. Exclude Select Options: Selected tags pinned to top, remaining available tags below
+    const excSelectedSet = new Set(state.excludeTags)
+    const excUnselected = availableTags.filter((t) => !excSelectedSet.has(t))
+    const excOptions = [...state.excludeTags, ...excUnselected].map((t) => ({
+      value: t,
+      label: t,
+    }))
+
+    incSelect.update({ options: incOptions })
+    excSelect.update({ options: excOptions })
   }
 
   const incSelect: SpindleMultiSelectHandle = ctx.components.mountMultiSelect(incSlot, {
@@ -169,14 +153,8 @@ export function mountTagFilterControls(
 
   return {
     state,
-    updateTagOptions: (data: any) => {
-      if (Array.isArray(data)) {
-        if (data.length > 0 && typeof data[0] === 'object' && 'tags' in data[0]) {
-          allCharactersList = data
-        } else if (data.length > 0 && typeof data[0] === 'string') {
-          allCharactersList = data.map((t) => ({ id: t, name: t, tags: [t] }))
-        }
-      }
+    setCharacters: (characters: CharacterItemWithTags[]) => {
+      allCharactersList = characters || []
       refreshDropdownOptions()
     },
     destroy: () => {

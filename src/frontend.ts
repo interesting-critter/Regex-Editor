@@ -1,7 +1,6 @@
 import type { SpindleFrontendContext, SpindleSelectHandle, SpindleMultiSelectHandle } from 'lumiverse-spindle-types'
 import { showDiffPreviewModal, type FieldDiffItem } from './diff-modal'
 import {
-  extractUniqueTags,
   filterCharactersByTags,
   mountTagFilterControls,
   type CharacterItemWithTags,
@@ -89,7 +88,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const tab = ctx.ui.registerDrawerTab({
     id: 'regex_studio',
     title: 'Regex Studio',
-    shortName: 'Rgx Studio',
+    shortName: 'Regex',
     description: 'Multi-field & batch regex editor for cards, lorebooks, and custom text',
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
@@ -858,8 +857,7 @@ export function setup(ctx: SpindleFrontendContext) {
     switch (payload.type) {
       case 'characters_list': {
         rawCharacters = payload.characters || []
-        const uniqueTags = extractUniqueTags(rawCharacters)
-        tagFilterComp?.updateTagOptions(uniqueTags)
+        tagFilterComp?.setCharacters(rawCharacters)
         updateSelectOptions()
         break
       }
