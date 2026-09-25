@@ -85,12 +85,21 @@ export function showDiffPreviewModal(
     maxHeight: 900,
   })
 
+  // Prevent outer modal container from scrolling
+  modal.root.style.cssText = `
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: hidden;
+  `
+
   const shell = document.createElement('div')
   shell.style.cssText = `
     display: flex;
     flex-direction: column;
+    height: 100%;
     min-height: 0;
-    max-height: 100%;
+    overflow: hidden;
   `
 
   const body = document.createElement('div')
@@ -109,6 +118,7 @@ export function showDiffPreviewModal(
     font-size: 12px;
     color: var(--lumiverse-text-dim, rgba(255, 255, 255, 0.6));
     margin-bottom: 2px;
+    flex-shrink: 0;
   `
   intro.innerHTML = `
     Review replacements across all fields before applying. Deletions are in
@@ -173,6 +183,7 @@ export function showDiffPreviewModal(
     body.appendChild(card)
   }
 
+  // Pinned footer
   const footer = document.createElement('div')
   footer.style.cssText = `
     flex-shrink: 0;
@@ -180,6 +191,7 @@ export function showDiffPreviewModal(
     justify-content: flex-end;
     gap: 10px;
     padding-top: 14px;
+    margin-top: auto;
     border-top: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
   `
 
