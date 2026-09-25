@@ -888,7 +888,11 @@ export function setup(ctx: SpindleFrontendContext) {
     }
 
     if (previewDiffEnabled) {
-      const opened = showDiffPreviewModal(ctx, diffItems, () => applyReplaceAll(diffItems))
+      const opened = showDiffPreviewModal(
+        ctx,
+        diffItems,
+        (approvedFields) => applyReplaceAll(approvedFields)
+      )
       if (!opened) scanMatches({ shouldFocus: false })
     } else {
       applyReplaceAll(diffItems)
