@@ -69,7 +69,7 @@ function computeWordDiffHtml(oldStr: string, newStr: string): string {
   return html
 }
 
-  export function showDiffPreviewModal(
+export function showDiffPreviewModal(
   ctx: SpindleFrontendContext,
   diffItems: FieldDiffItem[],
   onConfirm: () => void
