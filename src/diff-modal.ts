@@ -79,35 +79,30 @@ export function showDiffPreviewModal(
     return false
   }
 
-  const targetWidth = typeof window !== 'undefined' ? Math.round(window.innerWidth * 0.85) : 900
-  const targetHeight = typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.78) : 700
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 800
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 600
+
+  // 92% width on mobile, up to 760px on desktop
+  const modalWidth = Math.min(760, Math.max(320, winW - 24))
+  // 80% height on mobile, up to 680px on desktop
+  const modalMaxHeight = Math.min(680, Math.max(380, Math.round(winH * 0.8)))
 
   const modal = ctx.ui.showModal({
     title: `Preview Changes (${modifiedFields.length} field${modifiedFields.length === 1 ? '' : 's'} modified)`,
-    width: targetWidth,
-    maxHeight: targetHeight,
+    width: modalWidth,
+    maxHeight: modalMaxHeight,
   })
-
-  // Ensure outer dialog expands to 85vw if the host wrapper is constrained
-  let parent = modal.root.parentElement
-  while (parent && parent !== document.body) {
-    if (parent.style) {
-      parent.style.maxWidth = '88vw'
-      parent.style.width = '85vw'
-    }
-    parent = parent.parentElement
-  }
 
   let diffCardsHtml = ''
   for (const field of modifiedFields) {
     const diffContent = computeWordDiffHtml(field.oldValue, field.newValue)
     diffCardsHtml += `
-      <div style="background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); overflow: hidden; margin-bottom: 12px;">
-        <div style="background: var(--lumiverse-fill-subtle); padding: 8px 12px; font-weight: 600; font-size: 12.5px; border-bottom: 1px solid var(--lumiverse-border); display: flex; justify-content: space-between; align-items: center;">
+      <div style="background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); overflow: hidden; margin-bottom: 10px;">
+        <div style="background: var(--lumiverse-fill-subtle); padding: 7px 10px; font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--lumiverse-border); display: flex; justify-content: space-between; align-items: center;">
           <span>${field.label}</span>
-          ${field.sublabel ? `<span style="font-size: 11px; color: var(--lumiverse-text-dim); font-weight: normal;">${field.sublabel}</span>` : ''}
+          ${field.sublabel ? `<span style="font-size: 10.5px; color: var(--lumiverse-text-dim); font-weight: normal;">${field.sublabel}</span>` : ''}
         </div>
-        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 280px; overflow-y: auto;">
+        <div style="padding: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow-y: auto;">
           ${diffContent}
         </div>
       </div>
@@ -115,21 +110,21 @@ export function showDiffPreviewModal(
   }
 
   modal.root.innerHTML = `
-    <div style="display: flex; flex-direction: column; gap: 10px; width: 100%; color: var(--lumiverse-text); box-sizing: border-box;">
-      <!-- Top Instruction Header -->
-      <div style="font-size: 12px; color: var(--lumiverse-text-dim);">
-        Review replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
+    <div style="display: flex; flex-direction: column; gap: 8px; width: 100%; color: var(--lumiverse-text); box-sizing: border-box;">
+      <!-- Top Instruction -->
+      <div style="font-size: 11.5px; color: var(--lumiverse-text-dim); margin-bottom: 2px;">
+        Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
       </div>
 
       <!-- Scrollable Diff Area -->
-      <div style="max-height: 52vh; min-height: 240px; overflow-y: auto; padding-right: 6px;">
+      <div style="max-height: 50vh; min-height: 200px; overflow-y: auto; padding-right: 4px;">
         ${diffCardsHtml}
       </div>
 
-      <!-- Pinned Bottom Action Footer -->
+      <!-- Pinned Bottom Footer -->
       <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid var(--lumiverse-border);">
-        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 7px 18px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
-        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 7px 20px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
+        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 14px; font-size: 12px; cursor: pointer; font-weight: 500;">Cancel</button>
+        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 6px 16px; font-size: 12px; font-weight: 600; cursor: pointer;">Apply Changes</button>
       </div>
     </div>
   `
