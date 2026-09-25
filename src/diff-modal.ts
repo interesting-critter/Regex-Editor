@@ -84,6 +84,11 @@ export function showDiffPreviewModal(
     width: 1200,
     maxHeight: 900,
   })
+  
+    modal.root.style.display = 'flex'
+    modal.root.style.flexDirection = 'column'
+    modal.root.style.minHeight = '0'
+    modal.root.style.overflow = 'hidden'
 
   const shell = document.createElement('div')
   shell.style.cssText = `
