@@ -77,13 +77,19 @@ export function mountTagFilterControls(
 
   container.replaceChildren()
 
+  // HTML: Outer wrapper for the two tag-filter controls; flex-wrap keeps them usable on narrow screens.
   const wrap = document.createElement('div')
+  // CSS (inline): lays the include/exclude controls out horizontally, with wrapping and spacing.
   wrap.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%;'
 
+  // HTML: Slot that hosts the "include tag" multi-select component.
   const incSlot = document.createElement('div')
+  // CSS (inline): gives the include control flexible width with a 140px minimum.
   incSlot.style.cssText = 'flex: 1; min-width: 140px;'
 
+  // HTML: Slot that hosts the "exclude tag" multi-select component.
   const excSlot = document.createElement('div')
+  // CSS (inline): gives the exclude control flexible width with a 140px minimum.
   excSlot.style.cssText = 'flex: 1; min-width: 140px;'
 
   wrap.append(incSlot, excSlot)
@@ -116,6 +122,7 @@ export function mountTagFilterControls(
     excSelect.update({ options: excOptions })
   }
 
+  // HTML/component: Include-tag multi-select. This becomes the "Filter by Tag (Include)..." control.
   const incSelect: SpindleMultiSelectHandle = ctx.components.mountMultiSelect(incSlot, {
     value: [],
     placeholder: 'Filter by Tag (Include)...',
@@ -129,6 +136,7 @@ export function mountTagFilterControls(
     },
   })
 
+  // HTML/component: Exclude-tag multi-select. This becomes the "Hide by Tag (Exclude)..." control.
   const excSelect: SpindleMultiSelectHandle = ctx.components.mountMultiSelect(excSlot, {
     value: [],
     placeholder: 'Hide by Tag (Exclude)...',
