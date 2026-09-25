@@ -16,7 +16,7 @@ import {
 
 const CHAR_FIELDS = [
   { key: 'first_mes', label: 'First Message' },
-  { key: 'alternate_greetings', label: 'Alternate Greetings' },
+  { key: 'alternate_greetings', label: 'Alt Greetings' },
   { key: 'description', label: 'Description' },
   { key: 'personality', label: 'Personality' },
   { key: 'scenario', label: 'Scenario' },
