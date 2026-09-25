@@ -72,7 +72,7 @@ export function showDiffPreviewModal(
   ctx: SpindleFrontendContext,
   diffItems: FieldDiffItem[],
   onConfirm: () => void
-) {
+): boolean {
   const modifiedFields = diffItems.filter((d) => d.oldValue !== d.newValue)
 
   if (modifiedFields.length === 0) {
