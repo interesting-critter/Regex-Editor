@@ -85,29 +85,70 @@ export function showDiffPreviewModal(
     maxHeight: 900,
   })
 
-  // Prevent parent modal container from scrolling
-  modal.root.style.cssText = `
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-  `
-
   const shell = document.createElement('div')
   shell.style.cssText = `
     display: flex;
     flex-direction: column;
     height: 100%;
     min-height: 0;
-    overflow: hidden;
+    max-height: 100%;
+    gap: 10px;
   `
 
+  // ── Pinned Top Action Bar (Centered) ──
+  const topBar = document.createElement('div')
+  topBar.style.cssText = `
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
+  `
+
+  const cancelBtn = document.createElement('button')
+  cancelBtn.type = 'button'
+  cancelBtn.textContent = 'Cancel'
+  cancelBtn.style.cssText = `
+    background: var(--lumiverse-fill-subtle, rgba(255, 255, 255, 0.08));
+    color: var(--lumiverse-text, rgba(255, 255, 255, 0.9));
+    border: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.3));
+    border-radius: 6px;
+    padding: 7px 20px;
+    font-size: 12.5px;
+    cursor: pointer;
+    font-weight: 500;
+  `
+  cancelBtn.addEventListener('click', () => modal.dismiss())
+
+  const applyBtn = document.createElement('button')
+  applyBtn.type = 'button'
+  applyBtn.textContent = 'Apply Changes'
+  applyBtn.style.cssText = `
+    background: var(--lumiverse-accent, #9370db);
+    color: var(--lumiverse-accent-fg, #ffffff);
+    border: 1px solid var(--lumiverse-accent, #9370db);
+    border-radius: 6px;
+    padding: 7px 24px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  `
+  applyBtn.addEventListener('click', () => {
+    onConfirm()
+    modal.dismiss()
+  })
+
+  topBar.append(cancelBtn, applyBtn)
+
+  // ── Scrollable Diff Body ──
   const body = document.createElement('div')
   body.style.cssText = `
-    flex: 1 1 0;
+    flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 6px 14px 2px;
+    padding: 4px 2px 14px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -118,7 +159,6 @@ export function showDiffPreviewModal(
     font-size: 12px;
     color: var(--lumiverse-text-dim, rgba(255, 255, 255, 0.6));
     margin-bottom: 2px;
-    flex-shrink: 0;
   `
   intro.innerHTML = `
     Review replacements across all fields before applying. Deletions are in
@@ -183,52 +223,7 @@ export function showDiffPreviewModal(
     body.appendChild(card)
   }
 
-  const footer = document.createElement('div')
-  footer.style.cssText = `
-    flex-shrink: 0;
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    padding-top: 14px;
-    border-top: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
-    background: var(--lumiverse-fill, #1a1a1a);
-  `
-
-  const cancelBtn = document.createElement('button')
-  cancelBtn.type = 'button'
-  cancelBtn.textContent = 'Cancel'
-  cancelBtn.style.cssText = `
-    background: var(--lumiverse-fill-subtle, rgba(255, 255, 255, 0.08));
-    color: var(--lumiverse-text, rgba(255, 255, 255, 0.9));
-    border: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.3));
-    border-radius: 6px;
-    padding: 7px 18px;
-    font-size: 12.5px;
-    cursor: pointer;
-    font-weight: 500;
-  `
-  cancelBtn.addEventListener('click', () => modal.dismiss())
-
-  const applyBtn = document.createElement('button')
-  applyBtn.type = 'button'
-  applyBtn.textContent = 'Apply Changes'
-  applyBtn.style.cssText = `
-    background: var(--lumiverse-accent, #9370db);
-    color: var(--lumiverse-accent-fg, #ffffff);
-    border: 1px solid var(--lumiverse-accent, #9370db);
-    border-radius: 6px;
-    padding: 7px 22px;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-  `
-  applyBtn.addEventListener('click', () => {
-    onConfirm()
-    modal.dismiss()
-  })
-
-  footer.append(cancelBtn, applyBtn)
-  shell.append(body, footer)
+  shell.append(topBar, body)
   modal.root.appendChild(shell)
 
   return true
