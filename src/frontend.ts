@@ -181,7 +181,7 @@ export function setup(ctx: SpindleFrontendContext) {
             </div>
 
             <!-- Mode Switcher between Single Regex and Pipeline Preset -->
-            <button class="rs-btn" id="rs-toggle-mode-btn" style="font-weight: 600; font-size: 11px;">⇄ Switch to Presets</button>
+            <button class="rs-btn" id="rs-toggle-mode-btn" style="font-weight: 600; font-size: 11px;">⇄ Presets</button>
           </div>
 
           <!-- SINGLE REGEX INPUTS -->
