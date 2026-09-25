@@ -14,9 +14,6 @@ export interface CharacterPatchUpdate {
   patch: Record<string, any>
 }
 
-/**
- * Flattens multiple character objects into an editable list of FieldItems.
- */
 export function buildBatchCharacterFields(
   characters: any[],
   enabledFields: Set<string>,
@@ -60,9 +57,6 @@ export function buildBatchCharacterFields(
   return fields
 }
 
-/**
- * Reassembles modified batch field items into individual CharacterUpdate patches.
- */
 export function assembleBatchPatches(
   fields: BatchFieldItem[],
   enabledFields: Set<string>

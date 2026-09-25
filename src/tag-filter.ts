@@ -24,10 +24,6 @@ export function extractUniqueTags(characters: CharacterItemWithTags[]): string[]
   return Array.from(tagSet).sort((a, b) => a.localeCompare(b))
 }
 
-/**
- * Filters characters based on include and exclude tags.
- * Exclusion takes strict precedence: if a card matches ANY excluded tag, it is omitted.
- */
 export function filterCharactersByTags(
   characters: CharacterItemWithTags[],
   includeTags: string[],
@@ -39,12 +35,12 @@ export function filterCharactersByTags(
   return characters.filter((char) => {
     const charTags = new Set(char.tags || [])
 
-    // 1. Exclusion check (Takes precedence)
+    // 1. Exclusion check (Takes strict precedence)
     for (const tag of excSet) {
       if (charTags.has(tag)) return false
     }
 
-    // 2. Inclusion check (If includeTags are specified, card must have at least one)
+    // 2. Inclusion check (If includeTags specified, must have at least one)
     if (incSet.size > 0) {
       let hasInclude = false
       for (const tag of incSet) {
@@ -76,15 +72,19 @@ export function mountTagFilterControls(
     excludeTags: [],
   }
 
-  container.innerHTML = `
-    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%;">
-      <div id="rs-include-tags-slot" style="flex: 1; min-width: 140px;"></div>
-      <div id="rs-exclude-tags-slot" style="flex: 1; min-width: 140px;"></div>
-    </div>
-  `
+  container.replaceChildren()
 
-  const incSlot = container.querySelector('#rs-include-tags-slot') as HTMLElement
-  const excSlot = container.querySelector('#rs-exclude-tags-slot') as HTMLElement
+  const wrap = document.createElement('div')
+  wrap.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; align-items: center; width: 100%;'
+
+  const incSlot = document.createElement('div')
+  incSlot.style.cssText = 'flex: 1; min-width: 140px;'
+
+  const excSlot = document.createElement('div')
+  excSlot.style.cssText = 'flex: 1; min-width: 140px;'
+
+  wrap.append(incSlot, excSlot)
+  container.appendChild(wrap)
 
   const incSelect: SpindleMultiSelectHandle = ctx.components.mountMultiSelect(incSlot, {
     value: [],
@@ -93,7 +93,7 @@ export function mountTagFilterControls(
     searchThreshold: 1,
     options: [],
     onChange: (vals) => {
-      state.includeTags = vals
+      state.includeTags = vals || []
       onFilterChange(state)
     },
   })
@@ -105,7 +105,7 @@ export function mountTagFilterControls(
     searchThreshold: 1,
     options: [],
     onChange: (vals) => {
-      state.excludeTags = vals
+      state.excludeTags = vals || []
       onFilterChange(state)
     },
   })

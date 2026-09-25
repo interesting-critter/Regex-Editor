@@ -51,7 +51,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let currentMode: Mode = 'character'
   let rawCharacters: CharacterItemWithTags[] = []
   let worldBooks: Array<{ id: string; name: string }> = []
-  
+
   let selectedChar: any = null
   let selectedBatchChars: any[] = []
   let selectedWorldBookEntries: any[] = []
@@ -138,16 +138,15 @@ export function setup(ctx: SpindleFrontendContext) {
         <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
       </div>
 
-      <!-- Tag Filters Section (For Single & Batch Characters) -->
-      <div id="rs-tag-filters-section" class="rs-card" style="display: flex;">
+      <!-- Tag Filters Section -->
+      <div id="rs-tag-filters-section" class="rs-card">
         <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
         <div id="rs-tag-controls-slot"></div>
       </div>
 
       <!-- Selection Section -->
       <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
-        <div id="rs-single-select-slot" style="flex: 1; min-width: 200px;"></div>
-        <div id="rs-multi-select-slot" style="flex: 1; min-width: 200px; display: none;"></div>
+        <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
         <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
         <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
         <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
@@ -217,8 +216,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const tagFiltersSection = tab.root.querySelector('#rs-tag-filters-section') as HTMLElement
   const tagControlsSlot = tab.root.querySelector('#rs-tag-controls-slot') as HTMLElement
   const selectorSection = tab.root.querySelector('#rs-selector-section') as HTMLElement
-  const singleSelectSlot = tab.root.querySelector('#rs-single-select-slot') as HTMLElement
-  const multiSelectSlot = tab.root.querySelector('#rs-multi-select-slot') as HTMLElement
+  const selectSlot = tab.root.querySelector('#rs-select-slot') as HTMLElement
   const selectAllBtn = tab.root.querySelector('#rs-select-all-btn') as HTMLButtonElement
   const deselectAllBtn = tab.root.querySelector('#rs-deselect-all-btn') as HTMLButtonElement
   const refreshBtn = tab.root.querySelector('#rs-refresh-btn') as HTMLButtonElement
@@ -298,45 +296,57 @@ export function setup(ctx: SpindleFrontendContext) {
   colorPicker.oninput = () => setHighlightColor(colorPicker.value)
   setHighlightColor(colorPicker.value)
 
-  // ── Mount Dropdowns & Tag Filter ──
-  singleSelectComp = ctx.components.mountSelect(singleSelectSlot, {
-    value: '',
-    placeholder: 'Search and choose a Character...',
-    searchPlaceholder: 'Search by name...',
-    searchThreshold: 1,
-    options: [],
-    onChange: (id) => {
-      selectedItemId = id
-      if (!id) return
-      if (currentMode === 'character') {
-        ctx.sendToBackend({ type: 'get_character', characterId: id })
-      } else if (currentMode === 'lorebook') {
-        ctx.sendToBackend({ type: 'get_world_book', worldBookId: id })
-      }
-    },
-  })
-
-  multiSelectComp = ctx.components.mountMultiSelect(multiSelectSlot, {
-    value: [],
-    placeholder: 'Search and choose Character Cards for Batch...',
-    searchPlaceholder: 'Search characters...',
-    searchThreshold: 1,
-    options: [],
-    onChange: (ids) => {
-      selectedBatchIds = ids
-      if (ids.length > 0) {
-        ctx.sendToBackend({ type: 'get_batch_characters', characterIds: ids })
-      } else {
-        selectedBatchChars = []
-        fields = []
-        renderFieldsDOM()
-      }
-    },
-  })
-
+  // ── Mount Tag Filter Controls ──
   tagFilterComp = mountTagFilterControls(ctx, tagControlsSlot, () => {
     updateSelectOptions()
   })
+
+  // ── Mount Unified Select Picker ──
+  function mountCurrentSelect() {
+    singleSelectComp?.destroy()
+    multiSelectComp?.destroy()
+    singleSelectComp = null
+    multiSelectComp = null
+    selectSlot.replaceChildren()
+
+    if (currentMode === 'character_batch') {
+      multiSelectComp = ctx.components.mountMultiSelect(selectSlot, {
+        value: selectedBatchIds,
+        placeholder: 'Search and choose cards for Batch...',
+        searchPlaceholder: 'Search characters...',
+        searchThreshold: 1,
+        options: [],
+        onChange: (ids) => {
+          selectedBatchIds = ids || []
+          if (selectedBatchIds.length > 0) {
+            ctx.sendToBackend({ type: 'get_batch_characters', characterIds: selectedBatchIds })
+          } else {
+            selectedBatchChars = []
+            fields = []
+            renderFieldsDOM()
+          }
+        },
+      })
+    } else {
+      singleSelectComp = ctx.components.mountSelect(selectSlot, {
+        value: selectedItemId,
+        placeholder: currentMode === 'character' ? 'Choose Character...' : 'Choose Lorebook...',
+        searchPlaceholder: 'Search by name...',
+        searchThreshold: 1,
+        options: [],
+        onChange: (id) => {
+          selectedItemId = id || ''
+          if (!selectedItemId) return
+          if (currentMode === 'character') {
+            ctx.sendToBackend({ type: 'get_character', characterId: selectedItemId })
+          } else if (currentMode === 'lorebook') {
+            ctx.sendToBackend({ type: 'get_world_book', worldBookId: selectedItemId })
+          }
+        },
+      })
+    }
+    updateSelectOptions()
+  }
 
   // ── Field Filter Chips ──
   CHAR_FIELDS.forEach((f) => {
@@ -683,8 +693,6 @@ export function setup(ctx: SpindleFrontendContext) {
     modeCustomBtn.className = `rs-btn ${mode === 'custom' ? 'rs-btn-primary' : ''}`
 
     tagFiltersSection.style.display = (mode === 'character' || mode === 'character_batch') ? 'flex' : 'none'
-    singleSelectSlot.style.display = (mode === 'character' || mode === 'lorebook') ? 'block' : 'none'
-    multiSelectSlot.style.display = mode === 'character_batch' ? 'block' : 'none'
     selectAllBtn.style.display = mode === 'character_batch' ? 'inline-flex' : 'none'
     deselectAllBtn.style.display = mode === 'character_batch' ? 'inline-flex' : 'none'
     fieldsFilterCard.style.display = (mode === 'character' || mode === 'character_batch') ? 'flex' : 'none'
@@ -698,7 +706,10 @@ export function setup(ctx: SpindleFrontendContext) {
       saveBtn.style.display = 'inline-block'
       selectedItemId = ''
       selectedBatchIds = []
-      updateSelectOptions()
+      selectedBatchChars = []
+      fields = []
+      renderFieldsDOM()
+      mountCurrentSelect()
       fetchList()
     }
   }
@@ -890,7 +901,8 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   })
 
-  // Initial setup
+  // Initial load
+  mountCurrentSelect()
   updateRegexModeUI()
   fetchList()
 
