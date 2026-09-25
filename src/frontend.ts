@@ -1,5 +1,7 @@
 import type { SpindleFrontendContext, SpindleSelectHandle, SpindleMultiSelectHandle } from 'lumiverse-spindle-types'
 import { showDiffPreviewModal, type FieldDiffItem } from './diff-modal'
+import { PipelineManagerUI, runPipelineOnText } from './pipeline-manager'
+import type { RegexPreset } from './pipeline-types'
 import {
   filterCharactersByTags,
   mountTagFilterControls,
@@ -24,7 +26,8 @@ const CHAR_FIELDS = [
   { key: 'creator_notes', label: 'Creator Notes' },
 ] as const
 
-type Mode = 'character' | 'character_batch' | 'lorebook' | 'custom'
+type SourceMode = 'character' | 'character_batch' | 'lorebook' | 'custom'
+type TabView = 'editor' | 'pipelines'
 
 interface FieldItem {
   id: string
@@ -47,9 +50,14 @@ function escapeRegExp(str: string): string {
 }
 
 export function setup(ctx: SpindleFrontendContext) {
-  let currentMode: Mode = 'character'
+  let activeTabView: TabView = 'editor'
+  let currentSourceMode: SourceMode = 'character'
+  let isPresetRunMode = false
+
   let rawCharacters: CharacterItemWithTags[] = []
   let worldBooks: Array<{ id: string; name: string }> = []
+  let presets: RegexPreset[] = []
+  let selectedPresetId = ''
 
   let selectedChar: any = null
   let selectedBatchChars: any[] = []
@@ -60,10 +68,9 @@ export function setup(ctx: SpindleFrontendContext) {
   let singleSelectComp: SpindleSelectHandle | null = null
   let multiSelectComp: SpindleMultiSelectHandle | null = null
   let tagFilterComp: TagFilterMountResult | null = null
+  let pipelineUI: PipelineManagerUI | null = null
 
-  // Active fields
   let fields: FieldItem[] = []
-
   const enabledFields = new Set<string>([
     'first_mes',
     'alternate_greetings',
@@ -72,13 +79,14 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-  // Regex, Diff & History
+  // Single Regex & Navigation State
   let useRegex = true
   let previewDiffEnabled = true
   const flags = { g: true, i: false, m: true, s: true }
   let currentMatches: RegexMatch[] = []
   let currentMatchIndex = -1
 
+  // Undo / Redo History Stack
   let historyStack: FieldItem[][] = [[]]
   let historyIndex = 0
   const MAX_HISTORY = 100
@@ -88,8 +96,8 @@ export function setup(ctx: SpindleFrontendContext) {
   const tab = ctx.ui.registerDrawerTab({
     id: 'regex_studio',
     title: 'Regex Studio',
-    shortName: 'Regex',
-    description: 'Multi-field & batch regex editor for cards, lorebooks, and custom text',
+    shortName: 'Rgx Studio',
+    description: 'Multi-field regex & pipeline editor for cards, lorebooks, and custom text',
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
 
@@ -124,90 +132,128 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
     .rs-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
     .rs-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
+
+    .rs-nav-tabs { display: flex; border-bottom: 1px solid var(--lumiverse-border); margin-bottom: 4px; }
+    .rs-nav-tab { padding: 6px 14px; font-weight: 600; font-size: 12.5px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--lumiverse-text-dim); }
+    .rs-nav-tab.active { color: var(--lumiverse-accent); border-bottom-color: var(--lumiverse-accent); }
   `)
 
   // ── Render HTML Shell ──
   tab.root.innerHTML = `
     <div class="rs-container">
-      <div class="rs-row">
-        <label class="rs-header-title">Source:</label>
-        <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character Card</button>
-        <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
-        <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
-        <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
+      <!-- Top Navigation Tabs (Editor vs Pipelines) -->
+      <div class="rs-nav-tabs">
+        <div class="rs-nav-tab active" id="rs-tab-editor">Editor</div>
+        <div class="rs-nav-tab" id="rs-tab-pipelines">Pipelines & Presets</div>
       </div>
 
-      <!-- Tag Filters Section -->
-      <div id="rs-tag-filters-section" class="rs-card">
-        <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
-        <div id="rs-tag-controls-slot"></div>
-      </div>
-
-      <!-- Selection Section -->
-      <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
-        <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
-        <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
-        <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
-        <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
-      </div>
-
-      <!-- Field Filter Chips -->
-      <div id="rs-fields-filter" class="rs-card">
-        <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
-        <div class="rs-row" id="rs-chips-container"></div>
-      </div>
-
-      <!-- Action Toolbar -->
-      <div class="rs-row" style="justify-content: space-between;">
+      <!-- ── TAB VIEW 1: EDITOR ── -->
+      <div id="rs-view-editor" style="display: flex; flex-direction: column; gap: 10px;">
         <div class="rs-row">
-          <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
-          <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
+          <label class="rs-header-title">Source:</label>
+          <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character Card</button>
+          <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
+          <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
+          <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
         </div>
-        <div class="rs-row">
-          <button class="rs-btn" id="rs-copy-btn">Copy All</button>
-          <button class="rs-btn" id="rs-reset-btn">Reset All</button>
-          <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
-        </div>
-      </div>
 
-      <!-- Regex Find & Replace Toolbar -->
-      <div class="rs-card">
-        <div class="rs-row">
-          <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find text..." style="flex: 1; min-width: 140px;" />
-          <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace with..." style="flex: 1; min-width: 140px;" />
+        <!-- Tag Filters Section -->
+        <div id="rs-tag-filters-section" class="rs-card">
+          <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
+          <div id="rs-tag-controls-slot"></div>
         </div>
+
+        <!-- Selection Section -->
+        <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
+          <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
+          <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
+          <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
+          <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
+        </div>
+
+        <!-- Field Filter Chips -->
+        <div id="rs-fields-filter" class="rs-card">
+          <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
+          <div class="rs-row" id="rs-chips-container"></div>
+        </div>
+
+        <!-- Action Toolbar -->
         <div class="rs-row" style="justify-content: space-between;">
           <div class="rs-row">
-            <label class="rs-chip active" id="rs-toggle-regex" title="Toggle Regular Expressions">.* Regex</label>
-            <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 2px;">Flags:</span>
-            <label class="rs-chip active" id="rs-flag-g" title="Global match">g</label>
-            <label class="rs-chip" id="rs-flag-i" title="Case insensitive">i</label>
-            <label class="rs-chip active" id="rs-flag-m" title="Multiline">m</label>
-            <label class="rs-chip active" id="rs-flag-s" title="Dot matches newline">s</label>
-            <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 4px;">Highlight:</span>
-            <input type="color" id="rs-color-picker" class="rs-color-swatch" value="#6d5dfc" title="Change match highlight color" />
+            <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
+            <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
           </div>
           <div class="rs-row">
-            <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
-            <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
-            <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
-            <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
+            <button class="rs-btn" id="rs-copy-btn">Copy All</button>
+            <button class="rs-btn" id="rs-reset-btn">Reset All</button>
+            <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
+          </div>
+        </div>
+
+        <!-- Regex / Pipeline Runner Card -->
+        <div class="rs-card" id="rs-regex-card">
+          <div class="rs-row" style="justify-content: space-between;">
+            <div class="rs-row" id="rs-single-regex-flags">
+              <label class="rs-chip active" id="rs-toggle-regex" title="Toggle Regular Expressions">.* Regex</label>
+              <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 2px;">Flags:</span>
+              <label class="rs-chip active" id="rs-flag-g" title="Global match">g</label>
+              <label class="rs-chip" id="rs-flag-i" title="Case insensitive">i</label>
+              <label class="rs-chip active" id="rs-flag-m" title="Multiline">m</label>
+              <label class="rs-chip active" id="rs-flag-s" title="Dot matches newline">s</label>
+              <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 4px;">Highlight:</span>
+              <input type="color" id="rs-color-picker" class="rs-color-swatch" value="#6d5dfc" title="Change match highlight color" />
+            </div>
+
+            <button class="rs-btn" id="rs-toggle-mode-btn" style="font-weight: 600; font-size: 11px;">⇄ Presets</button>
+          </div>
+
+          <!-- SINGLE REGEX INPUTS -->
+          <div id="rs-single-inputs-row" class="rs-row">
+            <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find text..." style="flex: 1; min-width: 140px;" />
+            <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace with..." style="flex: 1; min-width: 140px;" />
+          </div>
+
+          <!-- PRESET RUNNER ROW -->
+          <div id="rs-preset-inputs-row" class="rs-row" style="display: none;">
+            <select id="rs-runner-preset-select" class="rs-input" style="flex: 1;">
+              <option value="">-- Choose Pipeline Preset to Run --</option>
+            </select>
+            <button class="rs-btn" id="rs-goto-pipeline-btn" title="Open in Pipeline Editor">Edit Preset</button>
+          </div>
+
+          <!-- BOTTOM ACTIONS -->
+          <div class="rs-row" style="justify-content: flex-end;">
+            <div id="rs-single-match-nav" class="rs-row" style="margin-right: auto;">
+              <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
+              <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
+              <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
+              <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
+            </div>
+            
             <button class="rs-btn rs-btn-primary" id="rs-replace-all-btn">Replace All</button>
             <label class="rs-chip active" id="rs-toggle-diff" title="Show diff preview before applying Replace All" style="margin-left: 4px;">Diff Preview</label>
           </div>
         </div>
-      </div>
 
-      <!-- Multi-Field Text Editor Area -->
-      <div id="rs-fields-container" class="rs-fields-list">
-        <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
-          Choose a Character Card or Lorebook above to display editable fields.
+        <!-- Multi-Field Text Area Container -->
+        <div id="rs-fields-container" class="rs-fields-list">
+          <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
+            Choose a Character Card or Lorebook above to display editable fields.
+          </div>
         </div>
       </div>
+
+      <!-- ── TAB VIEW 2: PIPELINES & PRESETS BUILDER ── -->
+      <div id="rs-view-pipelines" style="display: none;"></div>
     </div>
   `
 
-  // ── Elements ──
+  // ── Element Handles ──
+  const tabEditor = tab.root.querySelector('#rs-tab-editor') as HTMLElement
+  const tabPipelines = tab.root.querySelector('#rs-tab-pipelines') as HTMLElement
+  const viewEditor = tab.root.querySelector('#rs-view-editor') as HTMLElement
+  const viewPipelines = tab.root.querySelector('#rs-view-pipelines') as HTMLElement
+
   const modeCharBtn = tab.root.querySelector('#rs-mode-char') as HTMLButtonElement
   const modeBatchBtn = tab.root.querySelector('#rs-mode-batch') as HTMLButtonElement
   const modeLoreBtn = tab.root.querySelector('#rs-mode-lore') as HTMLButtonElement
@@ -221,6 +267,15 @@ export function setup(ctx: SpindleFrontendContext) {
   const refreshBtn = tab.root.querySelector('#rs-refresh-btn') as HTMLButtonElement
   const fieldsFilterCard = tab.root.querySelector('#rs-fields-filter') as HTMLElement
   const chipsContainer = tab.root.querySelector('#rs-chips-container') as HTMLElement
+
+  const toggleModeBtn = tab.root.querySelector('#rs-toggle-mode-btn') as HTMLButtonElement
+  const singleFlagsRow = tab.root.querySelector('#rs-single-regex-flags') as HTMLElement
+  const singleInputsRow = tab.root.querySelector('#rs-single-inputs-row') as HTMLElement
+  const singleMatchNav = tab.root.querySelector('#rs-single-match-nav') as HTMLElement
+  const presetInputsRow = tab.root.querySelector('#rs-preset-inputs-row') as HTMLElement
+  const runnerPresetSelect = tab.root.querySelector('#rs-runner-preset-select') as HTMLSelectElement
+  const gotoPipelineBtn = tab.root.querySelector('#rs-goto-pipeline-btn') as HTMLButtonElement
+
   const regexFindInput = tab.root.querySelector('#rs-regex-find') as HTMLInputElement
   const regexReplaceInput = tab.root.querySelector('#rs-regex-replace') as HTMLInputElement
   const regexToggleBtn = tab.root.querySelector('#rs-toggle-regex') as HTMLElement
@@ -235,13 +290,63 @@ export function setup(ctx: SpindleFrontendContext) {
   const replaceOneBtn = tab.root.querySelector('#rs-replace-one-btn') as HTMLButtonElement
   const replaceAllBtn = tab.root.querySelector('#rs-replace-all-btn') as HTMLButtonElement
   const fieldsContainer = tab.root.querySelector('#rs-fields-container') as HTMLElement
+
   const undoBtn = tab.root.querySelector('#rs-undo-btn') as HTMLButtonElement
   const redoBtn = tab.root.querySelector('#rs-redo-btn') as HTMLButtonElement
   const copyBtn = tab.root.querySelector('#rs-copy-btn') as HTMLButtonElement
   const resetBtn = tab.root.querySelector('#rs-reset-btn') as HTMLButtonElement
   const saveBtn = tab.root.querySelector('#rs-save-btn') as HTMLButtonElement
 
-  // ── History Helpers ──
+  // Initialize Pipeline UI
+  pipelineUI = new PipelineManagerUI(ctx, viewPipelines)
+
+  // ── Switch Main Drawer Tabs ──
+  function switchTabView(view: TabView) {
+    activeTabView = view
+    tabEditor.classList.toggle('active', view === 'editor')
+    tabPipelines.classList.toggle('active', view === 'pipelines')
+    viewEditor.style.display = view === 'editor' ? 'flex' : 'none'
+    viewPipelines.style.display = view === 'pipelines' ? 'flex' : 'none'
+  }
+
+  tabEditor.onclick = () => switchTabView('editor')
+  tabPipelines.onclick = () => switchTabView('pipelines')
+
+  gotoPipelineBtn.onclick = () => {
+    if (selectedPresetId) pipelineUI?.selectPresetById(selectedPresetId)
+    switchTabView('pipelines')
+  }
+
+  // ── Switch Single Regex vs Preset Runner ──
+  function setPresetRunMode(enabled: boolean) {
+    isPresetRunMode = enabled
+    toggleModeBtn.textContent = isPresetRunMode ? '⇄ Switch to Single Regex' : '⇄ Switch to Presets'
+    singleFlagsRow.style.visibility = isPresetRunMode ? 'hidden' : 'visible'
+    singleInputsRow.style.display = isPresetRunMode ? 'none' : 'flex'
+    singleMatchNav.style.display = isPresetRunMode ? 'none' : 'flex'
+    presetInputsRow.style.display = isPresetRunMode ? 'flex' : 'none'
+    replaceAllBtn.textContent = isPresetRunMode ? 'Run Pipeline' : 'Replace All'
+    if (!isPresetRunMode) scanMatches({ shouldFocus: false })
+  }
+
+  toggleModeBtn.onclick = () => setPresetRunMode(!isPresetRunMode)
+
+  runnerPresetSelect.onchange = () => {
+    selectedPresetId = runnerPresetSelect.value
+  }
+
+  function updateRunnerPresetDropdown() {
+    runnerPresetSelect.innerHTML = '<option value="">-- Choose Pipeline Preset to Run --</option>'
+    presets.forEach((p) => {
+      const opt = document.createElement('option')
+      opt.value = p.id
+      opt.textContent = `${p.name} (${p.steps.length} steps)`
+      runnerPresetSelect.appendChild(opt)
+    })
+    if (selectedPresetId) runnerPresetSelect.value = selectedPresetId
+  }
+
+  // ── Undo / Redo History Stack ──
   function cloneFields(arr: FieldItem[]): FieldItem[] {
     return arr.map((f) => ({ ...f }))
   }
@@ -308,7 +413,7 @@ export function setup(ctx: SpindleFrontendContext) {
     multiSelectComp = null
     selectSlot.replaceChildren()
 
-    if (currentMode === 'character_batch') {
+    if (currentSourceMode === 'character_batch') {
       multiSelectComp = ctx.components.mountMultiSelect(selectSlot, {
         value: selectedBatchIds,
         placeholder: 'Search and choose cards for Batch...',
@@ -329,16 +434,16 @@ export function setup(ctx: SpindleFrontendContext) {
     } else {
       singleSelectComp = ctx.components.mountSelect(selectSlot, {
         value: selectedItemId,
-        placeholder: currentMode === 'character' ? 'Choose Character...' : 'Choose Lorebook...',
+        placeholder: currentSourceMode === 'character' ? 'Choose Character...' : 'Choose Lorebook...',
         searchPlaceholder: 'Search by name...',
         searchThreshold: 1,
         options: [],
         onChange: (id) => {
           selectedItemId = id || ''
           if (!selectedItemId) return
-          if (currentMode === 'character') {
+          if (currentSourceMode === 'character') {
             ctx.sendToBackend({ type: 'get_character', characterId: selectedItemId })
-          } else if (currentMode === 'lorebook') {
+          } else if (currentSourceMode === 'lorebook') {
             ctx.sendToBackend({ type: 'get_world_book', worldBookId: selectedItemId })
           }
         },
@@ -360,8 +465,8 @@ export function setup(ctx: SpindleFrontendContext) {
         enabledFields.add(f.key)
         chip.classList.add('active')
       }
-      if (currentMode === 'character' && selectedChar) buildCharacterFields()
-      else if (currentMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
+      if (currentSourceMode === 'character' && selectedChar) buildCharacterFields()
+      else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
     }
     chipsContainer.appendChild(chip)
   })
@@ -372,7 +477,7 @@ export function setup(ctx: SpindleFrontendContext) {
     diffToggleBtn.classList.toggle('active', previewDiffEnabled)
   }
 
-  // ── Regex Toggle & Flags ──
+  // ── Single Regex Toggle & Flags ──
   function updateRegexModeUI() {
     regexToggleBtn.classList.toggle('active', useRegex)
     regexFindInput.placeholder = useRegex ? 'Find Regex (e.g. \\*[\\s\\S]*?\\*)' : 'Find plain text...'
@@ -405,7 +510,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (fields.length === 0) {
       fieldsContainer.innerHTML = `
         <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
-          ${currentMode === 'custom' ? 'Type in the box below.' : 'No active cards or fields selected.'}
+          ${currentSourceMode === 'custom' ? 'Type in the box below.' : 'No active cards or fields selected.'}
         </div>
       `
       return
@@ -522,7 +627,7 @@ export function setup(ctx: SpindleFrontendContext) {
     resetHistory(fields)
   }
 
-  // ── Regex Engine ──
+  // ── Single Regex Matching Engine ──
   function getActiveRegExp(): RegExp | null {
     const pattern = regexFindInput.value
     if (!pattern) return null
@@ -542,6 +647,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function scanMatches(opts: { shouldFocus?: boolean; preserveIndex?: boolean } = {}) {
+    if (isPresetRunMode) return
     const rx = getActiveRegExp()
     currentMatches = []
 
@@ -643,9 +749,7 @@ export function setup(ctx: SpindleFrontendContext) {
   function applyReplaceAll(diffItems: FieldDiffItem[]) {
     diffItems.forEach((diff) => {
       const field = fields.find((f) => f.id === diff.fieldId)
-      if (field) {
-        field.value = diff.newValue
-      }
+      if (field) field.value = diff.newValue
     })
 
     updateDomTextareasFromState()
@@ -654,38 +758,52 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function handleReplaceAllClick() {
-    const rx = getActiveRegExp()
-    if (!rx || fields.length === 0) return
+    if (fields.length === 0) return
 
-    const replaceStr = regexReplaceInput.value
+    let diffItems: FieldDiffItem[] = []
 
-    const diffItems: FieldDiffItem[] = fields.map((field) => {
-      const newValue = useRegex
-        ? field.value.replace(rx, replaceStr)
-        : field.value.replace(rx, () => replaceStr)
+    if (isPresetRunMode) {
+      const preset = presets.find((p) => p.id === runnerPresetSelect.value)
+      if (!preset || preset.steps.length === 0) return
 
-      return {
+      diffItems = fields.map((field) => ({
         fieldId: field.id,
         label: field.label,
         sublabel: field.sublabel,
         oldValue: field.value,
-        newValue,
-      }
-    })
+        newValue: runPipelineOnText(field.value, preset.steps),
+      }))
+    } else {
+      const rx = getActiveRegExp()
+      if (!rx) return
+      const replaceStr = regexReplaceInput.value
+
+      diffItems = fields.map((field) => {
+        const newValue = useRegex
+          ? field.value.replace(rx, replaceStr)
+          : field.value.replace(rx, () => replaceStr)
+
+        return {
+          fieldId: field.id,
+          label: field.label,
+          sublabel: field.sublabel,
+          oldValue: field.value,
+          newValue,
+        }
+      })
+    }
 
     if (previewDiffEnabled) {
       const opened = showDiffPreviewModal(ctx, diffItems, () => applyReplaceAll(diffItems))
-      if (!opened) {
-        scanMatches({ shouldFocus: false })
-      }
+      if (!opened) scanMatches({ shouldFocus: false })
     } else {
       applyReplaceAll(diffItems)
     }
   }
 
-  // ── Mode Switching & Dropdowns ──
-  function setMode(mode: Mode) {
-    currentMode = mode
+  // ── Source Mode Switching ──
+  function setSourceMode(mode: SourceMode) {
+    currentSourceMode = mode
     modeCharBtn.className = `rs-btn ${mode === 'character' ? 'rs-btn-primary' : ''}`
     modeBatchBtn.className = `rs-btn ${mode === 'character_batch' ? 'rs-btn-primary' : ''}`
     modeLoreBtn.className = `rs-btn ${mode === 'lorebook' ? 'rs-btn-primary' : ''}`
@@ -725,21 +843,21 @@ export function setup(ctx: SpindleFrontendContext) {
   function updateSelectOptions() {
     const filteredChars = getFilteredCharacters()
 
-    if (currentMode === 'character') {
+    if (currentSourceMode === 'character') {
       singleSelectComp?.update({
         value: selectedItemId,
         placeholder: `Choose from ${filteredChars.length} characters...`,
         searchPlaceholder: 'Search character name...',
         options: filteredChars.map((c) => ({ value: c.id, label: c.name })),
       })
-    } else if (currentMode === 'character_batch') {
+    } else if (currentSourceMode === 'character_batch') {
       multiSelectComp?.update({
         value: selectedBatchIds,
         placeholder: `Select cards (${selectedBatchIds.length}/${filteredChars.length} selected)...`,
         searchPlaceholder: 'Search characters for batch...',
         options: filteredChars.map((c) => ({ value: c.id, label: c.name })),
       })
-    } else if (currentMode === 'lorebook') {
+    } else if (currentSourceMode === 'lorebook') {
       singleSelectComp?.update({
         value: selectedItemId,
         placeholder: `Choose from ${worldBooks.length} lorebooks...`,
@@ -750,9 +868,9 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function fetchList() {
-    if (currentMode === 'character' || currentMode === 'character_batch') {
+    if (currentSourceMode === 'character' || currentSourceMode === 'character_batch') {
       ctx.sendToBackend({ type: 'list_characters' })
-    } else if (currentMode === 'lorebook') {
+    } else if (currentSourceMode === 'lorebook') {
       ctx.sendToBackend({ type: 'list_world_books' })
     }
   }
@@ -777,10 +895,10 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   // ── Event Handlers ──
-  modeCharBtn.onclick = () => setMode('character')
-  modeBatchBtn.onclick = () => setMode('character_batch')
-  modeLoreBtn.onclick = () => setMode('lorebook')
-  modeCustomBtn.onclick = () => setMode('custom')
+  modeCharBtn.onclick = () => setSourceMode('character')
+  modeBatchBtn.onclick = () => setSourceMode('character_batch')
+  modeLoreBtn.onclick = () => setSourceMode('lorebook')
+  modeCustomBtn.onclick = () => setSourceMode('custom')
   refreshBtn.onclick = () => fetchList()
 
   regexFindInput.oninput = () => scanMatches({ shouldFocus: false })
@@ -802,9 +920,9 @@ export function setup(ctx: SpindleFrontendContext) {
   replaceAllBtn.onclick = () => handleReplaceAllClick()
 
   resetBtn.onclick = () => {
-    if (currentMode === 'character' && selectedChar) buildCharacterFields()
-    else if (currentMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
-    else if (currentMode === 'lorebook') buildWorldBookFields()
+    if (currentSourceMode === 'character' && selectedChar) buildCharacterFields()
+    else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
+    else if (currentSourceMode === 'lorebook') buildWorldBookFields()
     else buildCustomField()
   }
 
@@ -814,7 +932,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   saveBtn.onclick = () => {
-    if (currentMode === 'character' && selectedChar) {
+    if (currentSourceMode === 'character' && selectedChar) {
       const patch: Record<string, any> = {}
       const altGreetings: string[] = []
 
@@ -836,13 +954,13 @@ export function setup(ctx: SpindleFrontendContext) {
         name: selectedChar.name,
         patch,
       })
-    } else if (currentMode === 'character_batch' && selectedBatchChars.length > 0) {
+    } else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) {
       const updates = assembleBatchPatches(fields as BatchFieldItem[], enabledFields)
       ctx.sendToBackend({
         type: 'save_batch_characters',
         updates,
       })
-    } else if (currentMode === 'lorebook' && selectedItemId) {
+    } else if (currentSourceMode === 'lorebook' && selectedItemId) {
       const updates = fields.map((f) => ({ id: f.id, content: f.value }))
       ctx.sendToBackend({
         type: 'save_world_book_entries',
@@ -855,6 +973,13 @@ export function setup(ctx: SpindleFrontendContext) {
   // ── Backend Message Handling ──
   const unsubMsg = ctx.onBackendMessage((payload: any) => {
     switch (payload.type) {
+      case 'presets_loaded': {
+        presets = payload.presets || []
+        pipelineUI?.setPresets(presets)
+        updateRunnerPresetDropdown()
+        break
+      }
+
       case 'characters_list': {
         rawCharacters = payload.characters || []
         tagFilterComp?.setCharacters(rawCharacters)
@@ -902,6 +1027,7 @@ export function setup(ctx: SpindleFrontendContext) {
   // Initial load
   mountCurrentSelect()
   updateRegexModeUI()
+  ctx.sendToBackend({ type: 'load_presets' })
   fetchList()
 
   // ── Teardown ──

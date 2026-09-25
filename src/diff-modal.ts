@@ -16,9 +16,6 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;')
 }
 
-/**
- * Lightweight word-level token diff engine
- */
 function computeWordDiffHtml(oldStr: string, newStr: string): string {
   const tokenize = (s: string) => s.match(/[\w']+|[^\w\s]+|\s+/g) || []
   const oldTokens = tokenize(oldStr)

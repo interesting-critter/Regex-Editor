@@ -212,7 +212,6 @@ export class PipelineManagerUI {
         </div>
       `
 
-      // Step event handlers
       const findInput = stepCard.querySelector('#rs-step-find') as HTMLInputElement
       const replaceInput = stepCard.querySelector('#rs-step-replace') as HTMLInputElement
       const delStepBtn = stepCard.querySelector('#rs-step-del') as HTMLButtonElement

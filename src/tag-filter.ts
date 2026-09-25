@@ -24,11 +24,6 @@ export function extractUniqueTags(characters: CharacterItemWithTags[]): string[]
   return Array.from(tagSet).sort((a, b) => a.localeCompare(b))
 }
 
-/**
- * Filters characters based on include and exclude tags.
- * Exclusion takes strict precedence: if a card matches ANY excluded tag, it is omitted.
- * Inclusion checks if the card has ANY of the included tags.
- */
 export function filterCharactersByTags(
   characters: CharacterItemWithTags[],
   includeTags: string[],
@@ -41,12 +36,12 @@ export function filterCharactersByTags(
     const charTags = Array.isArray(char.tags) ? char.tags : []
     const charTagSet = new Set(charTags)
 
-    // 1. Exclusion check (Strict: if card has ANY excluded tag, it is omitted)
+    // 1. Exclusion (Strict: if card has ANY excluded tag, omit it)
     for (const tag of excSet) {
       if (charTagSet.has(tag)) return false
     }
 
-    // 2. Inclusion check (If includeTags are set, card must have at least ONE)
+    // 2. Inclusion (Card must have at least ONE included tag)
     if (incSet.size > 0) {
       let hasAnyIncluded = false
       for (const tag of incSet) {
@@ -95,17 +90,14 @@ export function mountTagFilterControls(
   container.appendChild(wrap)
 
   function refreshDropdownOptions() {
-    // 1. Get only the cards that survive BOTH the Include and Exclude filters
     const matchingCards = filterCharactersByTags(
       allCharactersList,
       state.includeTags,
       state.excludeTags
     )
 
-    // 2. Extract union of tags present ONLY on the currently surviving cards
     const availableTags = extractUniqueTags(matchingCards)
 
-    // 3. Include Select: Pinned selected tags + available unselected tags from surviving cards
     const incSelectedSet = new Set(state.includeTags)
     const incUnselected = availableTags.filter((t) => !incSelectedSet.has(t))
     const incOptions = [...state.includeTags, ...incUnselected].map((t) => ({
@@ -113,7 +105,6 @@ export function mountTagFilterControls(
       label: t,
     }))
 
-    // 4. Exclude Select: Pinned selected tags + available unselected tags from surviving cards
     const excSelectedSet = new Set(state.excludeTags)
     const excUnselected = availableTags.filter((t) => !excSelectedSet.has(t))
     const excOptions = [...state.excludeTags, ...excUnselected].map((t) => ({
