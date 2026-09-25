@@ -84,11 +84,6 @@ export function showDiffPreviewModal(
     width: 1200,
     maxHeight: 900,
   })
-  
-    modal.root.style.display = 'flex'
-    modal.root.style.flexDirection = 'column'
-    modal.root.style.minHeight = '0'
-    modal.root.style.overflow = 'hidden'
 
   const shell = document.createElement('div')
   shell.style.cssText = `
@@ -106,9 +101,8 @@ export function showDiffPreviewModal(
   topBar.style.cssText = `
     flex-shrink: 0;
     display: flex;
-    justify-content: center;
+    flex-direction: column;
     align-items: center;
-    gap: 12px;
     padding-bottom: 10px;
     border-bottom: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
   `
@@ -146,7 +140,17 @@ export function showDiffPreviewModal(
     modal.dismiss()
   })
 
-  topBar.append(cancelBtn, applyBtn)
+  const actionBar = document.createElement('div')
+  actionBar.style.cssText = `
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    padding-top: 10px;
+  `
+  actionBar.append(cancelBtn, applyBtn)
+
+  topBar.appendChild(actionBar)
 
   // ── Scrollable Diff Body ──
   const body = document.createElement('div')
