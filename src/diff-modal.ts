@@ -85,7 +85,7 @@ export function showDiffPreviewModal(
     maxHeight: 900,
   })
 
-  // Prevent outer modal container from scrolling
+  // Prevent parent modal container from scrolling
   modal.root.style.cssText = `
     display: flex;
     flex-direction: column;
@@ -104,10 +104,10 @@ export function showDiffPreviewModal(
 
   const body = document.createElement('div')
   body.style.cssText = `
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-height: 0;
     overflow-y: auto;
-    padding: 4px 2px 14px;
+    padding: 4px 6px 14px 2px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -183,7 +183,6 @@ export function showDiffPreviewModal(
     body.appendChild(card)
   }
 
-  // Pinned footer
   const footer = document.createElement('div')
   footer.style.cssText = `
     flex-shrink: 0;
@@ -191,8 +190,8 @@ export function showDiffPreviewModal(
     justify-content: flex-end;
     gap: 10px;
     padding-top: 14px;
-    margin-top: auto;
     border-top: 1px solid var(--lumiverse-border, rgba(128, 128, 128, 0.2));
+    background: var(--lumiverse-fill, #1a1a1a);
   `
 
   const cancelBtn = document.createElement('button')
