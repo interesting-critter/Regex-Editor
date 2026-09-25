@@ -62,11 +62,28 @@ export interface TagFilterMountResult {
   destroy: () => void
 }
 
+/**
+ * Builds tag options with selected tags pinned to the top,
+ * and unselected tags in their original alphabetical order.
+ */
+function buildSortedTagOptions(
+  allTags: string[],
+  selectedTags: string[]
+): Array<{ value: string; label: string }> {
+  const selSet = new Set(selectedTags)
+  const selectedList = allTags.filter((t) => selSet.has(t))
+  const unselectedList = allTags.filter((t) => !selSet.has(t))
+
+  return [...selectedList, ...unselectedList].map((t) => ({ value: t, label: t }))
+}
+
 export function mountTagFilterControls(
   ctx: SpindleFrontendContext,
   container: HTMLElement,
   onFilterChange: (state: TagFilterState) => void
 ): TagFilterMountResult {
+  let allTagsList: string[] = []
+
   const state: TagFilterState = {
     includeTags: [],
     excludeTags: [],
@@ -94,6 +111,9 @@ export function mountTagFilterControls(
     options: [],
     onChange: (vals) => {
       state.includeTags = vals || []
+      incSelect.update({
+        options: buildSortedTagOptions(allTagsList, state.includeTags),
+      })
       onFilterChange(state)
     },
   })
@@ -106,6 +126,9 @@ export function mountTagFilterControls(
     options: [],
     onChange: (vals) => {
       state.excludeTags = vals || []
+      excSelect.update({
+        options: buildSortedTagOptions(allTagsList, state.excludeTags),
+      })
       onFilterChange(state)
     },
   })
@@ -113,9 +136,13 @@ export function mountTagFilterControls(
   return {
     state,
     updateTagOptions: (tags: string[]) => {
-      const opts = tags.map((t) => ({ value: t, label: t }))
-      incSelect.update({ options: opts })
-      excSelect.update({ options: opts })
+      allTagsList = tags
+      incSelect.update({
+        options: buildSortedTagOptions(allTagsList, state.includeTags),
+      })
+      excSelect.update({
+        options: buildSortedTagOptions(allTagsList, state.excludeTags),
+      })
     },
     destroy: () => {
       incSelect.destroy()
