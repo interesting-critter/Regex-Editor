@@ -1,7 +1,6 @@
 import type { SpindleFrontendContext, SpindleSelectHandle, SpindleMultiSelectHandle } from 'lumiverse-spindle-types'
 import { showDiffPreviewModal, type FieldDiffItem } from './diff-modal'
 import {
-  extractUniqueTags,
   filterCharactersByTags,
   mountTagFilterControls,
   type CharacterItemWithTags,
@@ -858,8 +857,7 @@ export function setup(ctx: SpindleFrontendContext) {
     switch (payload.type) {
       case 'characters_list': {
         rawCharacters = payload.characters || []
-        const uniqueTags = extractUniqueTags(rawCharacters)
-        tagFilterComp?.updateTagOptions(uniqueTags)
+        tagFilterComp?.updateCharacters(rawCharacters)
         updateSelectOptions()
         break
       }

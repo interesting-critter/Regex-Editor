@@ -24,6 +24,10 @@ export function extractUniqueTags(characters: CharacterItemWithTags[]): string[]
   return Array.from(tagSet).sort((a, b) => a.localeCompare(b))
 }
 
+/**
+ * Filters characters based on include and exclude tags.
+ * Exclusion takes strict precedence: if a card matches ANY excluded tag, it is omitted.
+ */
 export function filterCharactersByTags(
   characters: CharacterItemWithTags[],
   includeTags: string[],
@@ -58,23 +62,31 @@ export function filterCharactersByTags(
 
 export interface TagFilterMountResult {
   state: TagFilterState
-  updateTagOptions: (tags: string[]) => void
+  updateCharacters: (characters: CharacterItemWithTags[]) => void
   destroy: () => void
 }
 
 /**
  * Builds tag options with selected tags pinned to the top,
- * and unselected tags in their original alphabetical order.
+ * and only co-occurring/available unselected tags below them in alphabetical order.
  */
-function buildSortedTagOptions(
-  allTags: string[],
+function buildFacetedTagOptions(
+  availableTags: string[],
   selectedTags: string[]
 ): Array<{ value: string; label: string }> {
   const selSet = new Set(selectedTags)
-  const selectedList = allTags.filter((t) => selSet.has(t))
-  const unselectedList = allTags.filter((t) => !selSet.has(t))
+  const availSet = new Set(availableTags)
 
-  return [...selectedList, ...unselectedList].map((t) => ({ value: t, label: t }))
+  // 1. Currently selected tags (always visible at top)
+  const selectedList = selectedTags.map((t) => ({ value: t, label: t }))
+
+  // 2. Unselected tags that exist on the currently filtered cards
+  const unselectedList = availableTags
+    .filter((t) => !selSet.has(t))
+    .sort((a, b) => a.localeCompare(b))
+    .map((t) => ({ value: t, label: t }))
+
+  return [...selectedList, ...unselectedList]
 }
 
 export function mountTagFilterControls(
@@ -82,7 +94,7 @@ export function mountTagFilterControls(
   container: HTMLElement,
   onFilterChange: (state: TagFilterState) => void
 ): TagFilterMountResult {
-  let allTagsList: string[] = []
+  let allCharactersList: CharacterItemWithTags[] = []
 
   const state: TagFilterState = {
     includeTags: [],
@@ -103,6 +115,26 @@ export function mountTagFilterControls(
   wrap.append(incSlot, excSlot)
   container.appendChild(wrap)
 
+  function refreshDropdownOptions() {
+    // 1. Get cards that survive the current filters
+    const matchingCards = filterCharactersByTags(
+      allCharactersList,
+      state.includeTags,
+      state.excludeTags
+    )
+
+    // 2. Extract tags present on those surviving cards
+    const coOccurringTags = extractUniqueTags(matchingCards)
+
+    // 3. Update both multi-selects with pinned selected tags + available co-occurring tags
+    incSelect.update({
+      options: buildFacetedTagOptions(coOccurringTags, state.includeTags),
+    })
+    excSelect.update({
+      options: buildFacetedTagOptions(coOccurringTags, state.excludeTags),
+    })
+  }
+
   const incSelect: SpindleMultiSelectHandle = ctx.components.mountMultiSelect(incSlot, {
     value: [],
     placeholder: 'Filter by Tag (Include)...',
@@ -111,9 +143,7 @@ export function mountTagFilterControls(
     options: [],
     onChange: (vals) => {
       state.includeTags = vals || []
-      incSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.includeTags),
-      })
+      refreshDropdownOptions()
       onFilterChange(state)
     },
   })
@@ -126,23 +156,16 @@ export function mountTagFilterControls(
     options: [],
     onChange: (vals) => {
       state.excludeTags = vals || []
-      excSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.excludeTags),
-      })
+      refreshDropdownOptions()
       onFilterChange(state)
     },
   })
 
   return {
     state,
-    updateTagOptions: (tags: string[]) => {
-      allTagsList = tags
-      incSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.includeTags),
-      })
-      excSelect.update({
-        options: buildSortedTagOptions(allTagsList, state.excludeTags),
-      })
+    updateCharacters: (characters: CharacterItemWithTags[]) => {
+      allCharactersList = characters
+      refreshDropdownOptions()
     },
     destroy: () => {
       incSelect.destroy()
