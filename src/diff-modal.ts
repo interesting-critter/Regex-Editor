@@ -79,18 +79,35 @@ export function showDiffPreviewModal(
     return false
   }
 
-  // Calculate 85% width and 75% height of the user's viewport
   const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200
   const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 800
 
-  const modalWidth = Math.max(500, Math.round(viewportWidth * 0.85))
-  const modalMaxHeight = Math.max(400, Math.round(viewportHeight * 0.75))
+  const targetWidth = Math.round(viewportWidth * 0.85)
+  const targetHeight = Math.round(viewportHeight * 0.75)
 
   const modal = ctx.ui.showModal({
     title: `Preview Changes (${modifiedFields.length} field${modifiedFields.length === 1 ? '' : 's'} modified)`,
-    width: modalWidth,
-    maxHeight: modalMaxHeight,
+    width: targetWidth,
+    maxHeight: targetHeight,
   })
+
+  // Force outer host modal dialog to 85vw and 75vh
+  const dialogContainer =
+    modal.root.closest<HTMLElement>('dialog, [role="dialog"], div[class*="modal"]') ||
+    modal.root.parentElement
+
+  if (dialogContainer) {
+    dialogContainer.style.setProperty('width', '85vw', 'important')
+    dialogContainer.style.setProperty('max-width', '85vw', 'important')
+    dialogContainer.style.setProperty('height', '75vh', 'important')
+    dialogContainer.style.setProperty('max-height', '75vh', 'important')
+  }
+
+  modal.root.style.setProperty('height', '100%', 'important')
+  modal.root.style.setProperty('display', 'flex', 'important')
+  modal.root.style.setProperty('flex-direction', 'column', 'important')
+  modal.root.style.setProperty('overflow', 'hidden', 'important')
+  modal.root.style.setProperty('min-height', '0', 'important')
 
   let diffCardsHtml = ''
   for (const field of modifiedFields) {
@@ -101,7 +118,7 @@ export function showDiffPreviewModal(
           <span>${field.label}</span>
           ${field.sublabel ? `<span style="font-size: 11px; color: var(--lumiverse-text-dim); font-weight: normal;">${field.sublabel}</span>` : ''}
         </div>
-        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto;">
+        <div style="padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;">
           ${diffContent}
         </div>
       </div>
@@ -109,21 +126,21 @@ export function showDiffPreviewModal(
   }
 
   modal.root.innerHTML = `
-    <div style="display: flex; flex-direction: column; height: calc(${modalMaxHeight}px - 70px); min-height: 320px; color: var(--lumiverse-text); box-sizing: border-box;">
-      <!-- Pinned Top Instruction Header -->
-      <div style="flex-shrink: 0; font-size: 12px; color: var(--lumiverse-text-dim); margin-bottom: 10px;">
-        Review your replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 500;">red</span> and additions in <span style="color: #4ade80; font-weight: 500;">green</span>.
+    <div style="display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--lumiverse-text); box-sizing: border-box;">
+      <!-- Pinned Top Header -->
+      <div style="flex-shrink: 0; font-size: 12px; color: var(--lumiverse-text-dim); margin-bottom: 12px;">
+        Review your replacements across all fields before applying. Deletions are in <span style="color: #f87171; font-weight: 600;">red</span> and additions in <span style="color: #4ade80; font-weight: 600;">green</span>.
       </div>
 
       <!-- Scrollable Diff Area -->
-      <div style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 6px;">
+      <div style="flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 8px;">
         ${diffCardsHtml}
       </div>
 
       <!-- Pinned Bottom Action Footer (Never scrolls away) -->
-      <div style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; margin-top: 8px; border-top: 1px solid var(--lumiverse-border);">
-        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 7px 16px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
-        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 7px 18px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
+      <div style="flex-shrink: 0; display: flex; justify-content: flex-end; gap: 10px; padding-top: 14px; margin-top: 10px; border-top: 1px solid var(--lumiverse-border);">
+        <button id="rs-modal-cancel" style="background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 8px 18px; font-size: 12.5px; cursor: pointer; font-weight: 500;">Cancel</button>
+        <button id="rs-modal-apply" style="background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); border-radius: var(--lumiverse-radius); padding: 8px 22px; font-size: 12.5px; font-weight: 600; cursor: pointer;">Apply Changes</button>
       </div>
     </div>
   `
