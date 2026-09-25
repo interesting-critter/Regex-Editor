@@ -1,1 +1,56 @@
-[]
+[
+  {
+    "id": "preset_1790308955311",
+    "name": "Asterisks Begone (Except Emphasis Doubles)",
+    "steps": [
+      {
+        "id": "step_1790308955311_zv1q9",
+        "find": "\\*\\*",
+        "replace": "XSX",
+        "useRegex": true,
+        "flags": {
+          "g": true,
+          "i": false,
+          "m": true,
+          "s": true
+        }
+      },
+      {
+        "id": "step_1790308959888_w4gwn",
+        "find": "\\*([\\s\\S]*?)\\*",
+        "replace": "$1",
+        "useRegex": true,
+        "flags": {
+          "g": true,
+          "i": false,
+          "m": true,
+          "s": true
+        }
+      },
+      {
+        "id": "step_1790308985523_jm1qg",
+        "find": "XSX",
+        "replace": "**",
+        "useRegex": true,
+        "flags": {
+          "g": true,
+          "i": false,
+          "m": true,
+          "s": true
+        }
+      },
+      {
+        "id": "step_1790308986848_g1uw7",
+        "find": "`'([\\s\\S]*?)'`",
+        "replace": "*$1*",
+        "useRegex": true,
+        "flags": {
+          "g": true,
+          "i": false,
+          "m": true,
+          "s": true
+        }
+      }
+    ]
+  }
+]
