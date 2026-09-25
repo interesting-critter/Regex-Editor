@@ -139,7 +139,7 @@ export function setup(ctx: SpindleFrontendContext) {
     /* CSS: Individual editable-field panel containing a field header and textarea. */
     .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
     /* CSS: Header strip for each editable field; shows field label and optional sublabel. */
-    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--lumiverse-border); }
+    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: none; cursor: pointer; user-select: none; }
     /* CSS: Secondary field metadata such as the card name or lorebook entry ID. */
     .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
     
@@ -599,7 +599,7 @@ export function setup(ctx: SpindleFrontendContext) {
       const header = document.createElement('div')
       header.className = 'rs-field-header'
       header.innerHTML = `
-        <span>${field.label}</span>
+        <span>▶ ${field.label}</span>
         ${field.sublabel ? `<span class="rs-field-sub">${field.sublabel}</span>` : ''}
       `
 
@@ -620,6 +620,21 @@ export function setup(ctx: SpindleFrontendContext) {
           pushHistory(fields)
         }, 600)
       }
+
+    header.addEventListener('click', () => {
+      const isOpen = textarea.style.display !== 'none'
+
+      textarea.style.display = isOpen ? 'none' : 'block'
+
+      const labelSpan = header.querySelector('span')
+      if (labelSpan) {
+      labelSpan.textContent = `${isOpen ? '▶' : '▼'} ${field.label}`
+     }
+
+      header.style.borderBottom = isOpen
+        ? '1px solid var(--lumiverse-border)'
+        : 'none'
+    })
 
       box.appendChild(header)
       box.appendChild(textarea)
