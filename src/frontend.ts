@@ -1,11 +1,22 @@
-import type { SpindleFrontendContext, SpindleSelectHandle } from 'lumiverse-spindle-types'
+import type { SpindleFrontendContext, SpindleSelectHandle, SpindleMultiSelectHandle } from 'lumiverse-spindle-types'
 import { showDiffPreviewModal, type FieldDiffItem } from './diff-modal'
 import { PipelineManagerUI, runPipelineOnText } from './pipeline-manager'
 import type { RegexPreset } from './pipeline-types'
+import {
+  filterCharactersByTags,
+  mountTagFilterControls,
+  type CharacterItemWithTags,
+  type TagFilterMountResult,
+} from './tag-filter'
+import {
+  buildBatchCharacterFields,
+  assembleBatchPatches,
+  type BatchFieldItem,
+} from './batch-manager'
 
 const CHAR_FIELDS = [
   { key: 'first_mes', label: 'First Message' },
-  { key: 'alternate_greetings', label: 'Alternate Greetings' },
+  { key: 'alternate_greetings', label: 'Alt Greetings' },
   { key: 'description', label: 'Description' },
   { key: 'personality', label: 'Personality' },
   { key: 'scenario', label: 'Scenario' },
@@ -15,7 +26,7 @@ const CHAR_FIELDS = [
   { key: 'creator_notes', label: 'Creator Notes' },
 ] as const
 
-type SourceMode = 'character' | 'lorebook' | 'custom'
+type SourceMode = 'character' | 'character_batch' | 'lorebook' | 'custom'
 type TabView = 'editor' | 'pipelines'
 
 interface FieldItem {
@@ -43,15 +54,20 @@ export function setup(ctx: SpindleFrontendContext) {
   let currentSourceMode: SourceMode = 'character'
   let isPresetRunMode = false
 
-  let characters: Array<{ id: string; name: string }> = []
+  let rawCharacters: CharacterItemWithTags[] = []
   let worldBooks: Array<{ id: string; name: string }> = []
   let presets: RegexPreset[] = []
   let selectedPresetId = ''
 
   let selectedChar: any = null
+  let selectedBatchChars: any[] = []
   let selectedWorldBookEntries: any[] = []
   let selectedItemId = ''
-  let selectComponent: SpindleSelectHandle | null = null
+  let selectedBatchIds: string[] = []
+
+  let singleSelectComp: SpindleSelectHandle | null = null
+  let multiSelectComp: SpindleMultiSelectHandle | null = null
+  let tagFilterComp: TagFilterMountResult | null = null
   let pipelineUI: PipelineManagerUI | null = null
 
   let fields: FieldItem[] = []
@@ -87,140 +103,217 @@ export function setup(ctx: SpindleFrontendContext) {
 
   // ── Styles ──
   const removeStyle = ctx.dom.addStyle(`
+    /* CSS: Main Regex Studio wrapper; vertical layout, spacing, padding, and base text styling. */
     .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); }
+    /* CSS: Generic horizontal flex row used throughout the UI; wraps on narrow screens. */
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    /* CSS: Small bold heading used for labels such as "Source:". */
     .rs-header-title { font-weight: 600; font-size: 13.5px; }
+    /* CSS: Shared appearance for text inputs and select controls. */
     .rs-input { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 6px 10px; font-size: 12px; outline: none; box-sizing: border-box; }
+    /* CSS: Focus state for inputs/selects; highlights the active control with the accent color. */
     .rs-input:focus { border-color: var(--lumiverse-accent); }
+    /* CSS: Base button style used for normal actions throughout Regex Studio. */
     .rs-btn { background: var(--lumiverse-fill-subtle); color: var(--lumiverse-text); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 5px 10px; font-size: 12px; cursor: pointer; transition: background 0.15s; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
+    /* CSS: Hover state for enabled buttons. */
     .rs-btn:hover:not(:disabled) { background: var(--lumiverse-border); }
+    /* CSS: Disabled-button state; dims the button and prevents normal pointer interaction. */
     .rs-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* CSS: Primary-action button style for the currently emphasized action. */
     .rs-btn-primary { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border: 1px solid var(--lumiverse-accent); }
+    /* CSS: Slightly dims a primary button on hover. */
     .rs-btn-primary:hover:not(:disabled) { opacity: 0.9; }
     
+    /* CSS: Pill/chip control used for field filters, regex mode, and regex flags. */
     .rs-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px; background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: 12px; cursor: pointer; user-select: none; font-weight: 500; }
+    /* CSS: Active chip state; visually marks a selected field/filter/regex option. */
     .rs-chip.active { background: var(--lumiverse-accent); color: var(--lumiverse-accent-fg, #fff); border-color: var(--lumiverse-accent); }
+    /* CSS: Disabled chip state for options unavailable in plain-text mode. */
     .rs-chip.disabled { opacity: 0.4; cursor: not-allowed; }
     
+    /* CSS: Shared bordered panel/card container. */
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    /* CSS: Scrollable stack of editable character/lorebook text fields. */
     .rs-fields-list { display: flex; flex-direction: column; gap: 12px; max-height: 60vh; overflow-y: auto; padding-right: 2px; }
     
+    /* CSS: Individual editable-field panel containing a field header and textarea. */
     .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
-    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--lumiverse-border); }
+    /* CSS: Header strip for each editable field; shows field label and optional sublabel. */
+    .rs-field-header { background: var(--lumiverse-fill-subtle); padding: 6px 10px; font-size: 11.5px; font-weight: 600; color: var(--lumiverse-text); display: flex; align-items: center; justify-content: space-between; border-bottom: none; cursor: pointer; user-select: none; }
+    /* CSS: Secondary field metadata such as the card name or lorebook entry ID. */
     .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
     
+    /* CSS: Main editor textarea; fixed starting height, monospace text, and vertical resize support. */
     .rs-field-textarea { width: 100%; min-height: 250px; height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
+    /* CSS: Focus state for an editor textarea; adds a subtle background to show active editing. */
     .rs-field-textarea:focus { background: var(--lumiverse-fill-subtle); }
+    /* CSS: Text-selection highlight; uses the user-selected regex highlight color. */
     .rs-field-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
 
+    /* CSS: Circular color-picker control used to choose the match-selection highlight color. */
     .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
+    /* CSS: Removes WebKit's default padding around the native color swatch. */
     .rs-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+    /* CSS: Makes the native WebKit color swatch fill the circular picker cleanly. */
     .rs-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
 
+    /* CSS: Container for the Editor / Pipelines & Presets navigation tabs. */
     .rs-nav-tabs { display: flex; border-bottom: 1px solid var(--lumiverse-border); margin-bottom: 4px; }
+    /* CSS: Individual top-level navigation tab; inactive tabs use dim text and a transparent underline. */
     .rs-nav-tab { padding: 6px 14px; font-weight: 600; font-size: 12.5px; cursor: pointer; border-bottom: 2px solid transparent; color: var(--lumiverse-text-dim); }
+    /* CSS: Active top-level navigation tab; accent text and underline identify the current view. */
     .rs-nav-tab.active { color: var(--lumiverse-accent); border-bottom-color: var(--lumiverse-accent); }
   `)
 
   // ── Render HTML Shell ──
   tab.root.innerHTML = `
     <div class="rs-container">
-      <!-- Top Navigation Tabs (Editor vs Pipelines) -->
+      <!-- HTML: Top navigation for switching between the text editor and pipeline builder. -->
+      <!-- CSS: .rs-nav-tabs/.rs-nav-tab/.active control layout and active-tab appearance. -->
       <div class="rs-nav-tabs">
+        <!-- HTML: Opens the main multi-field regex editor view. -->
         <div class="rs-nav-tab active" id="rs-tab-editor">Editor</div>
+        <!-- HTML: Opens the pipeline/preset management view. -->
         <div class="rs-nav-tab" id="rs-tab-pipelines">Pipelines & Presets</div>
       </div>
 
-      <!-- ── TAB VIEW 1: EDITOR ── -->
+      <!-- HTML: TAB VIEW 1 — complete editor workspace. -->
+      <!-- CSS: inline flex-column layout stacks source, filters, regex controls, and fields. -->
       <div id="rs-view-editor" style="display: flex; flex-direction: column; gap: 10px;">
+        <!-- HTML: Source-mode toolbar; chooses what kind of content Regex Studio edits. -->
         <div class="rs-row">
+          <!-- HTML: Source label. -->
           <label class="rs-header-title">Source:</label>
-          <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character Card</button>
+          <!-- HTML: Edits one character card. -->
+          <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character</button>
+          <!-- HTML: Enables multi-card/batch editing. -->
+          <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
+          <!-- HTML: Edits lorebook/world-book entries. -->
           <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
+          <!-- HTML: Provides a standalone scratchpad/custom text editor. -->
           <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
         </div>
 
-        <!-- Searchable Select Slot -->
+        <!-- HTML: Tag filter panel; shown for character and character-batch modes. -->
+        <div id="rs-tag-filters-section" class="rs-card">
+          <!-- HTML/CSS: Section title for include/exclude character-tag filtering. -->
+          <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
+          <!-- HTML: Mount point populated by tag-filter.ts with the two multi-select controls. -->
+          <div id="rs-tag-controls-slot"></div>
+        </div>
+
+        <!-- HTML: Content-selection area; receives either a single-select or multi-select control. -->
         <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
+          <!-- HTML/CSS: Mount point for the current character/lorebook selector or batch multi-select. -->
           <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
+          <!-- HTML: Batch-only action that selects every currently filtered character. -->
+          <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
+          <!-- HTML: Batch-only action that clears all selected characters. -->
+          <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
+          <!-- HTML: Reloads the available characters/lorebooks from the backend. -->
           <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
         </div>
 
-        <!-- Field Filter Chips -->
+        <!-- HTML: Field-filter panel; controls which character fields are loaded into the editor. -->
         <div id="rs-fields-filter" class="rs-card">
+          <!-- HTML/CSS: Label explaining that the chips control editable character fields. -->
           <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
+          <!-- HTML: Dynamic mount point where one chip is created for each CHAR_FIELDS definition. -->
           <div class="rs-row" id="rs-chips-container"></div>
         </div>
 
-        <!-- Action Toolbar -->
+        <!-- HTML: Main editing action toolbar for history, copying, resetting, and saving. -->
         <div class="rs-row" style="justify-content: space-between;">
           <div class="rs-row">
+            <!-- HTML: Undo/redo history controls. -->
             <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
             <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
           </div>
           <div class="rs-row">
+            <!-- HTML: Copies all current field contents to the clipboard. -->
             <button class="rs-btn" id="rs-copy-btn">Copy All</button>
+            <!-- HTML: Restores the selected source data back into the editor. -->
             <button class="rs-btn" id="rs-reset-btn">Reset All</button>
+            <!-- HTML: Persists the current edits through the backend. -->
             <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
           </div>
         </div>
 
-        <!-- Regex / Pipeline Runner Card -->
+        <!-- HTML: Regex/pipeline execution panel. This is the control center for single-regex replacement or preset execution. -->
         <div class="rs-card" id="rs-regex-card">
-          <!-- TOP HEADER of Regex Card: Flags, Controls & Mode Toggle -->
           <div class="rs-row" style="justify-content: space-between;">
             <div class="rs-row" id="rs-single-regex-flags">
+              <!-- HTML: Toggles regex interpretation versus literal text matching. -->
               <label class="rs-chip active" id="rs-toggle-regex" title="Toggle Regular Expressions">.* Regex</label>
+              <!-- HTML/CSS: Label introducing the regex flags. -->
               <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 2px;">Flags:</span>
+              <!-- HTML: Global-match flag toggle. -->
               <label class="rs-chip active" id="rs-flag-g" title="Global match">g</label>
+              <!-- HTML: Case-insensitive flag toggle. -->
               <label class="rs-chip" id="rs-flag-i" title="Case insensitive">i</label>
+              <!-- HTML: Multiline flag toggle. -->
               <label class="rs-chip active" id="rs-flag-m" title="Multiline">m</label>
+              <!-- HTML: Dot-matches-newline flag toggle. -->
               <label class="rs-chip active" id="rs-flag-s" title="Dot matches newline">s</label>
+              <!-- HTML/CSS: Label for the match-highlight color setting. -->
               <span style="font-size: 11px; color: var(--lumiverse-text-dim); margin-left: 4px;">Highlight:</span>
+              <!-- HTML: Native color picker used to change the selection/highlight color. -->
+              <!-- CSS: .rs-color-swatch turns the native picker into a small circular swatch. -->
               <input type="color" id="rs-color-picker" class="rs-color-swatch" value="#6d5dfc" title="Change match highlight color" />
             </div>
 
-            <!-- Mode Switcher between Single Regex and Pipeline Preset -->
+            <!-- HTML/CSS: Switches the execution panel between single-regex mode and preset/pipeline mode. -->
             <button class="rs-btn" id="rs-toggle-mode-btn" style="font-weight: 600; font-size: 11px;">⇄ Presets</button>
           </div>
 
-          <!-- SINGLE REGEX INPUTS -->
+          <!-- HTML: Single-regex input row; hidden when preset-run mode is active. -->
           <div id="rs-single-inputs-row" class="rs-row">
+            <!-- HTML/CSS: Regex/literal search pattern input. -->
             <input type="text" id="rs-regex-find" class="rs-input" placeholder="Find text..." style="flex: 1; min-width: 140px;" />
+            <!-- HTML/CSS: Replacement text or replacement expression input. -->
             <input type="text" id="rs-regex-replace" class="rs-input" placeholder="Replace with..." style="flex: 1; min-width: 140px;" />
           </div>
 
-          <!-- PRESET RUNNER ROW (Hidden by default) -->
+          <!-- HTML: Preset-runner row; hidden until the user switches from single-regex mode. -->
           <div id="rs-preset-inputs-row" class="rs-row" style="display: none;">
+            <!-- HTML/CSS: Dropdown for selecting which saved pipeline to run against the current fields. -->
             <select id="rs-runner-preset-select" class="rs-input" style="flex: 1;">
               <option value="">-- Choose Pipeline Preset to Run --</option>
             </select>
+            <!-- HTML: Jumps to the pipeline builder for editing the selected preset. -->
             <button class="rs-btn" id="rs-goto-pipeline-btn" title="Open in Pipeline Editor">Edit Preset</button>
           </div>
 
-          <!-- BOTTOM ACTIONS of Regex Card -->
+          <!-- HTML: Bottom execution/navigation toolbar. -->
           <div class="rs-row" style="justify-content: flex-end;">
             <div id="rs-single-match-nav" class="rs-row" style="margin-right: auto;">
+              <!-- HTML/CSS: Displays current match position/count. -->
               <span id="rs-match-count" style="font-size: 11px; color: var(--lumiverse-text-dim);">No matches</span>
+              <!-- HTML: Moves to the previous regex match. -->
               <button class="rs-btn" id="rs-prev-match-btn" title="Previous Match" disabled>◀</button>
+              <!-- HTML: Moves to the next regex match. -->
               <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
+              <!-- HTML: Replaces only the currently selected match. -->
               <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
             </div>
             
+            <!-- HTML: Applies the replacement to every matching occurrence across all active fields, or runs a pipeline in preset mode. -->
             <button class="rs-btn rs-btn-primary" id="rs-replace-all-btn">Replace All</button>
+            <!-- HTML/CSS: Toggles the before/after diff confirmation step. -->
             <label class="rs-chip active" id="rs-toggle-diff" title="Show diff preview before applying Replace All" style="margin-left: 4px;">Diff Preview</label>
           </div>
         </div>
 
-        <!-- Multi-Field Text Area Container -->
+        <!-- HTML: Scrollable container holding one editable text panel per active character/lorebook field. -->
         <div id="rs-fields-container" class="rs-fields-list">
+          <!-- HTML/CSS: Empty-state message shown before a source/field selection is made. -->
           <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
             Choose a Character Card or Lorebook above to display editable fields.
           </div>
         </div>
       </div>
 
-      <!-- ── TAB VIEW 2: PIPELINES & PRESETS BUILDER ── -->
+      <!-- HTML: TAB VIEW 2 — pipeline/preset builder mount point. PipelineManagerUI renders into this element. -->
       <div id="rs-view-pipelines" style="display: none;"></div>
     </div>
   `
@@ -232,10 +325,15 @@ export function setup(ctx: SpindleFrontendContext) {
   const viewPipelines = tab.root.querySelector('#rs-view-pipelines') as HTMLElement
 
   const modeCharBtn = tab.root.querySelector('#rs-mode-char') as HTMLButtonElement
+  const modeBatchBtn = tab.root.querySelector('#rs-mode-batch') as HTMLButtonElement
   const modeLoreBtn = tab.root.querySelector('#rs-mode-lore') as HTMLButtonElement
   const modeCustomBtn = tab.root.querySelector('#rs-mode-custom') as HTMLButtonElement
+  const tagFiltersSection = tab.root.querySelector('#rs-tag-filters-section') as HTMLElement
+  const tagControlsSlot = tab.root.querySelector('#rs-tag-controls-slot') as HTMLElement
   const selectorSection = tab.root.querySelector('#rs-selector-section') as HTMLElement
   const selectSlot = tab.root.querySelector('#rs-select-slot') as HTMLElement
+  const selectAllBtn = tab.root.querySelector('#rs-select-all-btn') as HTMLButtonElement
+  const deselectAllBtn = tab.root.querySelector('#rs-deselect-all-btn') as HTMLButtonElement
   const refreshBtn = tab.root.querySelector('#rs-refresh-btn') as HTMLButtonElement
   const fieldsFilterCard = tab.root.querySelector('#rs-fields-filter') as HTMLElement
   const chipsContainer = tab.root.querySelector('#rs-chips-container') as HTMLElement
@@ -272,7 +370,7 @@ export function setup(ctx: SpindleFrontendContext) {
   // Initialize Pipeline UI
   pipelineUI = new PipelineManagerUI(ctx, viewPipelines)
 
-  // ── Switch Main Drawer Tabs (Editor vs Pipelines) ──
+  // ── Switch Main Drawer Tabs ──
   function switchTabView(view: TabView) {
     activeTabView = view
     tabEditor.classList.toggle('active', view === 'editor')
@@ -289,7 +387,7 @@ export function setup(ctx: SpindleFrontendContext) {
     switchTabView('pipelines')
   }
 
-  // ── Switch Single Regex vs Preset Runner in Editor ──
+  // ── Switch Single Regex vs Preset Runner ──
   function setPresetRunMode(enabled: boolean) {
     isPresetRunMode = enabled
     toggleModeBtn.textContent = isPresetRunMode ? '⇄ Switch to Single Regex' : '⇄ Switch to Presets'
@@ -372,25 +470,61 @@ export function setup(ctx: SpindleFrontendContext) {
   colorPicker.oninput = () => setHighlightColor(colorPicker.value)
   setHighlightColor(colorPicker.value)
 
-  // ── Native Searchable Select ──
-  selectComponent = ctx.components.mountSelect(selectSlot, {
-    value: '',
-    placeholder: 'Search and choose a Character...',
-    searchPlaceholder: 'Search by name...',
-    searchThreshold: 1,
-    options: [],
-    onChange: (id) => {
-      selectedItemId = id
-      if (!id) return
-      if (currentSourceMode === 'character') {
-        ctx.sendToBackend({ type: 'get_character', characterId: id })
-      } else if (currentSourceMode === 'lorebook') {
-        ctx.sendToBackend({ type: 'get_world_book', worldBookId: id })
-      }
-    },
+  // ── Mount Tag Filter Controls ──
+  tagFilterComp = mountTagFilterControls(ctx, tagControlsSlot, () => {
+    updateSelectOptions()
   })
 
+  // ── Mount Unified Select Picker ──
+  function mountCurrentSelect() {
+    singleSelectComp?.destroy()
+    multiSelectComp?.destroy()
+    singleSelectComp = null
+    multiSelectComp = null
+    selectSlot.replaceChildren()
+
+    if (currentSourceMode === 'character_batch') {
+      multiSelectComp = ctx.components.mountMultiSelect(selectSlot, {
+        value: selectedBatchIds,
+        placeholder: 'Search and choose cards for Batch...',
+        searchPlaceholder: 'Search characters...',
+        searchThreshold: 1,
+        options: [],
+        onChange: (ids) => {
+          selectedBatchIds = ids || []
+          if (selectedBatchIds.length > 0) {
+            ctx.sendToBackend({ type: 'get_batch_characters', characterIds: selectedBatchIds })
+          } else {
+            selectedBatchChars = []
+            fields = []
+            renderFieldsDOM()
+          }
+        },
+      })
+    } else {
+      singleSelectComp = ctx.components.mountSelect(selectSlot, {
+        value: selectedItemId,
+        placeholder: currentSourceMode === 'character' ? 'Choose Character...' : 'Choose Lorebook...',
+        searchPlaceholder: 'Search by name...',
+        searchThreshold: 1,
+        options: [],
+        onChange: (id) => {
+          selectedItemId = id || ''
+          if (!selectedItemId) return
+          if (currentSourceMode === 'character') {
+            ctx.sendToBackend({ type: 'get_character', characterId: selectedItemId })
+          } else if (currentSourceMode === 'lorebook') {
+            ctx.sendToBackend({ type: 'get_world_book', worldBookId: selectedItemId })
+          }
+        },
+      })
+    }
+    updateSelectOptions()
+  }
+
   // ── Field Filter Chips ──
+  // HTML: One field-selection chip is generated for every entry in CHAR_FIELDS.
+  // CSS: .rs-chip/.rs-chip.active provide the pill appearance and selected state.
   CHAR_FIELDS.forEach((f) => {
     const chip = document.createElement('span')
     chip.className = `rs-chip ${enabledFields.has(f.key) ? 'active' : ''}`
@@ -403,7 +537,8 @@ export function setup(ctx: SpindleFrontendContext) {
         enabledFields.add(f.key)
         chip.classList.add('active')
       }
-      if (selectedChar) buildCharacterFields()
+      if (currentSourceMode === 'character' && selectedChar) buildCharacterFields()
+      else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
     }
     chipsContainer.appendChild(chip)
   })
@@ -440,35 +575,42 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   })
 
-  // ── Multi-Field DOM Renderer ──
+  // ── DOM Multi-Field Rendering ──
   function renderFieldsDOM() {
     fieldsContainer.innerHTML = ''
 
     if (fields.length === 0) {
       fieldsContainer.innerHTML = `
         <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
-          ${currentSourceMode === 'custom' ? 'Type in the box below.' : 'No active fields selected.'}
+          ${currentSourceMode === 'custom' ? 'Type in the box below.' : 'No active cards or fields selected.'}
         </div>
       `
       return
     }
 
     fields.forEach((field) => {
+      // HTML: One editable field panel generated from the current source data.
+      // CSS: .rs-field-box supplies the bordered card/panel appearance.
       const box = document.createElement('div')
       box.className = 'rs-field-box'
 
+      // HTML: Field header containing the human-readable field name and optional metadata.
+      // CSS: .rs-field-header creates the compact header strip and .rs-field-sub styles its secondary text.
       const header = document.createElement('div')
       header.className = 'rs-field-header'
       header.innerHTML = `
-        <span>${field.label}</span>
+        <span>▶ ${field.label}</span>
         ${field.sublabel ? `<span class="rs-field-sub">${field.sublabel}</span>` : ''}
       `
 
+      // HTML: Editable text area containing the actual character/lorebook/custom text value.
+      // CSS: .rs-field-textarea controls typography, dimensions, selection color, and resize behavior.
       const textarea = document.createElement('textarea')
       textarea.className = 'rs-field-textarea'
       textarea.value = field.value
       textarea.dataset.fieldId = field.id
-      textarea.placeholder = `Enter ${field.label.toLowerCase()} here...`
+      textarea.placeholder = `Enter content here...`
+      textarea.style.display = 'none'
 
       textarea.oninput = () => {
         field.value = textarea.value
@@ -479,6 +621,21 @@ export function setup(ctx: SpindleFrontendContext) {
           pushHistory(fields)
         }, 600)
       }
+
+    header.addEventListener('click', () => {
+      const isOpen = textarea.style.display !== 'none'
+
+      textarea.style.display = isOpen ? 'none' : 'block'
+
+      const labelSpan = header.querySelector('span')
+      if (labelSpan) {
+      labelSpan.textContent = `${isOpen ? '▶' : '▼'} ${field.label}`
+     }
+
+      header.style.borderBottom = isOpen
+        ? '1px solid var(--lumiverse-border)'
+        : 'none'
+    })
 
       box.appendChild(header)
       box.appendChild(textarea)
@@ -497,7 +654,7 @@ export function setup(ctx: SpindleFrontendContext) {
     })
   }
 
-  // ── Build Field Models from Entities ──
+  // ── Field Generators ──
   function buildCharacterFields() {
     if (!selectedChar) return
     const newFields: FieldItem[] = []
@@ -532,6 +689,12 @@ export function setup(ctx: SpindleFrontendContext) {
     resetHistory(fields)
   }
 
+  function buildBatchFields() {
+    fields = buildBatchCharacterFields(selectedBatchChars, enabledFields, CHAR_FIELDS)
+    renderFieldsDOM()
+    resetHistory(fields)
+  }
+
   function buildWorldBookFields() {
     fields = selectedWorldBookEntries.map((entry, idx) => ({
       id: entry.id,
@@ -558,7 +721,7 @@ export function setup(ctx: SpindleFrontendContext) {
     resetHistory(fields)
   }
 
-  // ── Unified Regex Engine across all Fields ──
+  // ── Single Regex Matching Engine ──
   function getActiveRegExp(): RegExp | null {
     const pattern = regexFindInput.value
     if (!pattern) return null
@@ -694,11 +857,8 @@ export function setup(ctx: SpindleFrontendContext) {
     let diffItems: FieldDiffItem[] = []
 
     if (isPresetRunMode) {
-      // ── Pipeline Preset Mode Execution (in order) ──
       const preset = presets.find((p) => p.id === runnerPresetSelect.value)
-      if (!preset || preset.steps.length === 0) {
-        return
-      }
+      if (!preset || preset.steps.length === 0) return
 
       diffItems = fields.map((field) => ({
         fieldId: field.id,
@@ -708,7 +868,6 @@ export function setup(ctx: SpindleFrontendContext) {
         newValue: runPipelineOnText(field.value, preset.steps),
       }))
     } else {
-      // ── Single Regex Mode Execution ──
       const rx = getActiveRegExp()
       if (!rx) return
       const replaceStr = regexReplaceInput.value
@@ -740,35 +899,60 @@ export function setup(ctx: SpindleFrontendContext) {
   function setSourceMode(mode: SourceMode) {
     currentSourceMode = mode
     modeCharBtn.className = `rs-btn ${mode === 'character' ? 'rs-btn-primary' : ''}`
+    modeBatchBtn.className = `rs-btn ${mode === 'character_batch' ? 'rs-btn-primary' : ''}`
     modeLoreBtn.className = `rs-btn ${mode === 'lorebook' ? 'rs-btn-primary' : ''}`
     modeCustomBtn.className = `rs-btn ${mode === 'custom' ? 'rs-btn-primary' : ''}`
 
+    tagFiltersSection.style.display = (mode === 'character' || mode === 'character_batch') ? 'flex' : 'none'
+    selectAllBtn.style.display = mode === 'character_batch' ? 'inline-flex' : 'none'
+    deselectAllBtn.style.display = mode === 'character_batch' ? 'inline-flex' : 'none'
+    fieldsFilterCard.style.display = (mode === 'character' || mode === 'character_batch') ? 'flex' : 'none'
+
     if (mode === 'custom') {
       selectorSection.style.display = 'none'
-      fieldsFilterCard.style.display = 'none'
       saveBtn.style.display = 'none'
       buildCustomField()
     } else {
       selectorSection.style.display = 'flex'
       saveBtn.style.display = 'inline-block'
-      fieldsFilterCard.style.display = mode === 'character' ? 'flex' : 'none'
       selectedItemId = ''
-      updateSelectOptions()
+      selectedBatchIds = []
+      selectedBatchChars = []
+      fields = []
+      renderFieldsDOM()
+      mountCurrentSelect()
       fetchList()
     }
   }
 
+  function getFilteredCharacters(): CharacterItemWithTags[] {
+    if (!tagFilterComp) return rawCharacters
+    return filterCharactersByTags(
+      rawCharacters,
+      tagFilterComp.state.includeTags,
+      tagFilterComp.state.excludeTags
+    )
+  }
+
   function updateSelectOptions() {
-    if (!selectComponent) return
+    const filteredChars = getFilteredCharacters()
+
     if (currentSourceMode === 'character') {
-      selectComponent.update({
+      singleSelectComp?.update({
         value: selectedItemId,
-        placeholder: `Choose from ${characters.length} characters...`,
+        placeholder: `Choose from ${filteredChars.length} characters...`,
         searchPlaceholder: 'Search character name...',
-        options: characters.map((c) => ({ value: c.id, label: c.name })),
+        options: filteredChars.map((c) => ({ value: c.id, label: c.name })),
+      })
+    } else if (currentSourceMode === 'character_batch') {
+      multiSelectComp?.update({
+        value: selectedBatchIds,
+        placeholder: `Select cards (${selectedBatchIds.length}/${filteredChars.length} selected)...`,
+        searchPlaceholder: 'Search characters for batch...',
+        options: filteredChars.map((c) => ({ value: c.id, label: c.name })),
       })
     } else if (currentSourceMode === 'lorebook') {
-      selectComponent.update({
+      singleSelectComp?.update({
         value: selectedItemId,
         placeholder: `Choose from ${worldBooks.length} lorebooks...`,
         searchPlaceholder: 'Search lorebook name...',
@@ -778,15 +962,35 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function fetchList() {
-    if (currentSourceMode === 'character') {
+    if (currentSourceMode === 'character' || currentSourceMode === 'character_batch') {
       ctx.sendToBackend({ type: 'list_characters' })
     } else if (currentSourceMode === 'lorebook') {
       ctx.sendToBackend({ type: 'list_world_books' })
     }
   }
 
+  // ── Select All / Deselect All (Batch Mode) ──
+  selectAllBtn.onclick = () => {
+    const filteredChars = getFilteredCharacters()
+    const allIds = filteredChars.map((c) => c.id)
+    selectedBatchIds = allIds
+    multiSelectComp?.update({ value: allIds })
+    if (allIds.length > 0) {
+      ctx.sendToBackend({ type: 'get_batch_characters', characterIds: allIds })
+    }
+  }
+
+  deselectAllBtn.onclick = () => {
+    selectedBatchIds = []
+    multiSelectComp?.update({ value: [] })
+    selectedBatchChars = []
+    fields = []
+    renderFieldsDOM()
+  }
+
   // ── Event Handlers ──
   modeCharBtn.onclick = () => setSourceMode('character')
+  modeBatchBtn.onclick = () => setSourceMode('character_batch')
   modeLoreBtn.onclick = () => setSourceMode('lorebook')
   modeCustomBtn.onclick = () => setSourceMode('custom')
   refreshBtn.onclick = () => fetchList()
@@ -811,6 +1015,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
   resetBtn.onclick = () => {
     if (currentSourceMode === 'character' && selectedChar) buildCharacterFields()
+    else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) buildBatchFields()
     else if (currentSourceMode === 'lorebook') buildWorldBookFields()
     else buildCustomField()
   }
@@ -843,6 +1048,12 @@ export function setup(ctx: SpindleFrontendContext) {
         name: selectedChar.name,
         patch,
       })
+    } else if (currentSourceMode === 'character_batch' && selectedBatchChars.length > 0) {
+      const updates = assembleBatchPatches(fields as BatchFieldItem[], enabledFields)
+      ctx.sendToBackend({
+        type: 'save_batch_characters',
+        updates,
+      })
     } else if (currentSourceMode === 'lorebook' && selectedItemId) {
       const updates = fields.map((f) => ({ id: f.id, content: f.value }))
       ctx.sendToBackend({
@@ -864,7 +1075,8 @@ export function setup(ctx: SpindleFrontendContext) {
       }
 
       case 'characters_list': {
-        characters = payload.characters || []
+        rawCharacters = payload.characters || []
+        tagFilterComp?.setCharacters(rawCharacters)
         updateSelectOptions()
         break
       }
@@ -881,6 +1093,12 @@ export function setup(ctx: SpindleFrontendContext) {
         break
       }
 
+      case 'batch_characters_data': {
+        selectedBatchChars = payload.characters || []
+        buildBatchFields()
+        break
+      }
+
       case 'world_book_data': {
         selectedWorldBookEntries = payload.entries || []
         buildWorldBookFields()
@@ -890,6 +1108,8 @@ export function setup(ctx: SpindleFrontendContext) {
       case 'save_success': {
         if (payload.entityType === 'character' && selectedChar) {
           ctx.sendToBackend({ type: 'get_character', characterId: selectedChar.id })
+        } else if (payload.entityType === 'character_batch' && selectedBatchIds.length > 0) {
+          ctx.sendToBackend({ type: 'get_batch_characters', characterIds: selectedBatchIds })
         } else if (payload.entityType === 'world_book' && selectedItemId) {
           ctx.sendToBackend({ type: 'get_world_book', worldBookId: selectedItemId })
         }
@@ -899,6 +1119,7 @@ export function setup(ctx: SpindleFrontendContext) {
   })
 
   // Initial load
+  mountCurrentSelect()
   updateRegexModeUI()
   ctx.sendToBackend({ type: 'load_presets' })
   fetchList()
@@ -908,7 +1129,9 @@ export function setup(ctx: SpindleFrontendContext) {
     if (typingTimer) clearTimeout(typingTimer)
     removeStyle()
     unsubMsg()
-    selectComponent?.destroy()
+    singleSelectComp?.destroy()
+    multiSelectComp?.destroy()
+    tagFilterComp?.destroy()
     tab.destroy()
   }
 }

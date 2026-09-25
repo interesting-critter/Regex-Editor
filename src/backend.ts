@@ -17,13 +17,19 @@ async function savePresets(presets: any[]) {
 
 // Helpers for characters and world books pagination
 async function fetchAllCharacters(userId?: string) {
-  const all: Array<{ id: string; name: string }> = []
+  const all: Array<{ id: string; name: string; tags: string[] }> = []
   let offset = 0
   const limit = 200
   while (true) {
     const result = await spindle.characters.list({ limit, offset, userId } as any)
     const items = result.data || []
-    for (const item of items) all.push({ id: item.id, name: item.name })
+    for (const item of items) {
+      all.push({
+        id: item.id,
+        name: item.name,
+        tags: Array.isArray(item.tags) ? item.tags : [],
+      })
+    }
     if (items.length < limit || all.length >= (result.total || 0)) break
     offset += limit
   }
@@ -90,10 +96,30 @@ spindle.onFrontendMessage(async (payload: any, userId?: string) => {
         break
       }
 
+      case 'get_batch_characters': {
+        const charList: any[] = []
+        for (const charId of payload.characterIds || []) {
+          const char = await spindle.characters.get(charId, userId as any)
+          if (char) charList.push(char)
+        }
+        spindle.sendToFrontend({ type: 'batch_characters_data', characters: charList }, userId)
+        break
+      }
+
       case 'save_character': {
         await spindle.characters.update(payload.characterId, payload.patch, userId as any)
         spindle.toast.success(`Character "${payload.name || 'card'}" updated!`)
         spindle.sendToFrontend({ type: 'save_success', entityType: 'character' }, userId)
+        break
+      }
+
+      case 'save_batch_characters': {
+        const updates = payload.updates || []
+        for (const u of updates) {
+          await spindle.characters.update(u.id, u.patch, userId as any)
+        }
+        spindle.toast.success(`Batch updated ${updates.length} character cards!`)
+        spindle.sendToFrontend({ type: 'save_success', entityType: 'character_batch' }, userId)
         break
       }
 
