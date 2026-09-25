@@ -185,7 +185,7 @@ export function setup(ctx: SpindleFrontendContext) {
           <!-- HTML: Source label. -->
           <label class="rs-header-title">Source:</label>
           <!-- HTML: Edits one character card. -->
-          <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character Card</button>
+          <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character</button>
           <!-- HTML: Enables multi-card/batch editing. -->
           <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
           <!-- HTML: Edits lorebook/world-book entries. -->
