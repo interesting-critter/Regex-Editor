@@ -3,8 +3,12 @@ declare const spindle: import('lumiverse-spindle-types').SpindleAPI
 const PRESETS_STORAGE_FILE = 'regex_presets.json'
 
 async function loadPresets(): Promise<any[]> {
-  const data = await spindle.storage.getJson(PRESETS_STORAGE_FILE)
-  return Array.isArray(data) ? data : []
+  try {
+    const data = await spindle.storage.getJson(PRESETS_STORAGE_FILE)
+    return Array.isArray(data) ? data : []
+  } catch {
+    return []
+  }
 }
 
 async function savePresets(presets: any[]) {
