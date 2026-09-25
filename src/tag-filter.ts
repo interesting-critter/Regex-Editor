@@ -41,12 +41,12 @@ export function filterCharactersByTags(
     const charTags = Array.isArray(char.tags) ? char.tags : []
     const charTagSet = new Set(charTags)
 
-    // 1. Exclusion check (Takes strict precedence)
+    // 1. Exclusion check (Strict: if card has ANY excluded tag, it is omitted)
     for (const tag of excSet) {
       if (charTagSet.has(tag)) return false
     }
 
-    // 2. Inclusion check (Card must have at least ONE included tag)
+    // 2. Inclusion check (If includeTags are set, card must have at least ONE)
     if (incSet.size > 0) {
       let hasAnyIncluded = false
       for (const tag of incSet) {
@@ -95,17 +95,17 @@ export function mountTagFilterControls(
   container.appendChild(wrap)
 
   function refreshDropdownOptions() {
-    // 1. Find all cards matching the current criteria
+    // 1. Get only the cards that survive BOTH the Include and Exclude filters
     const matchingCards = filterCharactersByTags(
       allCharactersList,
       state.includeTags,
       state.excludeTags
     )
 
-    // 2. Extract union of all tags present on any of the matching cards
+    // 2. Extract union of tags present ONLY on the currently surviving cards
     const availableTags = extractUniqueTags(matchingCards)
 
-    // 3. Include Select Options: Selected tags pinned to top, remaining available tags below
+    // 3. Include Select: Pinned selected tags + available unselected tags from surviving cards
     const incSelectedSet = new Set(state.includeTags)
     const incUnselected = availableTags.filter((t) => !incSelectedSet.has(t))
     const incOptions = [...state.includeTags, ...incUnselected].map((t) => ({
@@ -113,7 +113,7 @@ export function mountTagFilterControls(
       label: t,
     }))
 
-    // 4. Exclude Select Options: Selected tags pinned to top, remaining available tags below
+    // 4. Exclude Select: Pinned selected tags + available unselected tags from surviving cards
     const excSelectedSet = new Set(state.excludeTags)
     const excUnselected = availableTags.filter((t) => !excSelectedSet.has(t))
     const excOptions = [...state.excludeTags, ...excUnselected].map((t) => ({
