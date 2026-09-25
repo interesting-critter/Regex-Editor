@@ -9,5 +9,8 @@
   "permissions": ["characters", "world_books"],
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js",
-  "minimum_lumiverse_version": "0.1.0"
+  "minimum_lumiverse_version": "0.1.0",
+  "storage_seed_files": [
+    { "from": "regex_presets.json", "to": "regex_presets.json" }
+  ]
 }
