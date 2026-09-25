@@ -1,4 +1,5 @@
 import type { SpindleFrontendContext, SpindleSelectHandle } from 'lumiverse-spindle-types'
+import { showDiffPreviewModal, type FieldDiffItem } from './diff-modal'
 
 const CHAR_FIELDS = [
   { key: 'first_mes', label: 'First Message' },
@@ -43,7 +44,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let selectedItemId = ''
   let selectComponent: SpindleSelectHandle | null = null
 
-  // Current active fields
+  // Active fields
   let fields: FieldItem[] = []
 
   const enabledFields = new Set<string>([
@@ -54,13 +55,14 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-  // ── Regex & Navigation State ──
+  // ── Regex, Diff Preview & Navigation State ──
   let useRegex = true
+  let previewDiffEnabled = true
   const flags = { g: true, i: false, m: true, s: true }
   let currentMatches: RegexMatch[] = []
   let currentMatchIndex = -1
 
-  // ── Undo / Redo History Stack (multi-field snapshots) ──
+  // ── Undo / Redo History Stack ──
   let historyStack: FieldItem[][] = [[]]
   let historyIndex = 0
   const MAX_HISTORY = 100
@@ -130,7 +132,7 @@ export function setup(ctx: SpindleFrontendContext) {
         <div class="rs-row" id="rs-chips-container"></div>
       </div>
 
-      <!-- Action Toolbar (Moved Up) -->
+      <!-- Action Toolbar -->
       <div class="rs-row" style="justify-content: space-between;">
         <div class="rs-row">
           <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
@@ -166,6 +168,7 @@ export function setup(ctx: SpindleFrontendContext) {
             <button class="rs-btn" id="rs-next-match-btn" title="Next Match" disabled>▶</button>
             <button class="rs-btn" id="rs-replace-one-btn" title="Replace Current Match" disabled>Replace</button>
             <button class="rs-btn rs-btn-primary" id="rs-replace-all-btn">Replace All</button>
+            <label class="rs-chip active" id="rs-toggle-diff" title="Show diff preview before applying Replace All" style="margin-left: 4px;">Diff Preview</label>
           </div>
         </div>
       </div>
@@ -191,6 +194,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const regexFindInput = tab.root.querySelector('#rs-regex-find') as HTMLInputElement
   const regexReplaceInput = tab.root.querySelector('#rs-regex-replace') as HTMLInputElement
   const regexToggleBtn = tab.root.querySelector('#rs-toggle-regex') as HTMLElement
+  const diffToggleBtn = tab.root.querySelector('#rs-toggle-diff') as HTMLElement
   const flagGEl = tab.root.querySelector('#rs-flag-g') as HTMLElement
   const flagMEl = tab.root.querySelector('#rs-flag-m') as HTMLElement
   const flagSEl = tab.root.querySelector('#rs-flag-s') as HTMLElement
@@ -296,6 +300,12 @@ export function setup(ctx: SpindleFrontendContext) {
     }
     chipsContainer.appendChild(chip)
   })
+
+  // ── Diff Preview Toggle ──
+  diffToggleBtn.onclick = () => {
+    previewDiffEnabled = !previewDiffEnabled
+    diffToggleBtn.classList.toggle('active', previewDiffEnabled)
+  }
 
   // ── Regex Toggle & Flags ──
   function updateRegexModeUI() {
@@ -559,21 +569,49 @@ export function setup(ctx: SpindleFrontendContext) {
     scanMatches({ shouldFocus: true, preserveIndex: true })
   }
 
-  function replaceAll() {
-    const rx = getActiveRegExp()
-    if (!rx || fields.length === 0) return
-
-    const replaceStr = regexReplaceInput.value
-
-    fields.forEach((field) => {
-      field.value = useRegex
-        ? field.value.replace(rx, replaceStr)
-        : field.value.replace(rx, () => replaceStr)
+  function applyReplaceAll(diffItems: FieldDiffItem[]) {
+    diffItems.forEach((diff) => {
+      const field = fields.find((f) => f.id === diff.fieldId)
+      if (field) {
+        field.value = diff.newValue
+      }
     })
 
     updateDomTextareasFromState()
     pushHistory(fields)
     scanMatches({ shouldFocus: false })
+  }
+
+  function handleReplaceAllClick() {
+    const rx = getActiveRegExp()
+    if (!rx || fields.length === 0) return
+
+    const replaceStr = regexReplaceInput.value
+
+    // Calculate replacement for all fields
+    const diffItems: FieldDiffItem[] = fields.map((field) => {
+      const newValue = useRegex
+        ? field.value.replace(rx, replaceStr)
+        : field.value.replace(rx, () => replaceStr)
+
+      return {
+        fieldId: field.id,
+        label: field.label,
+        sublabel: field.sublabel,
+        oldValue: field.value,
+        newValue,
+      }
+    })
+
+    if (previewDiffEnabled) {
+      const opened = showDiffPreviewModal(ctx, diffItems, () => applyReplaceAll(diffItems))
+      if (!opened) {
+        // No matches / changes were found
+        scanMatches({ shouldFocus: false })
+      }
+    } else {
+      applyReplaceAll(diffItems)
+    }
   }
 
   // ── Mode Switching ──
@@ -647,7 +685,7 @@ export function setup(ctx: SpindleFrontendContext) {
   nextMatchBtn.onclick = () => nextMatch()
   prevMatchBtn.onclick = () => prevMatch()
   replaceOneBtn.onclick = () => replaceSingleMatch()
-  replaceAllBtn.onclick = () => replaceAll()
+  replaceAllBtn.onclick = () => handleReplaceAllClick()
 
   resetBtn.onclick = () => {
     if (currentMode === 'character' && selectedChar) buildCharacterFields()
