@@ -80,7 +80,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const tab = ctx.ui.registerDrawerTab({
     id: 'regex_studio',
     title: 'Regex Studio',
-    shortName: 'Regex',
+    shortName: 'Rgx Studio',
     description: 'Multi-field regex & pipeline editor for cards, lorebooks, and custom text',
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
