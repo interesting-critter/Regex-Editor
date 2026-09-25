@@ -50,6 +50,7 @@ function escapeRegExp(str: string): string {
 }
 
 export function setup(ctx: SpindleFrontendContext) {
+  const DROPDOWN_HEIGHT = '26px'
   let activeTabView: TabView = 'editor'
   let currentSourceMode: SourceMode = 'character'
   let isPresetRunMode = false
@@ -332,6 +333,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const tagControlsSlot = tab.root.querySelector('#rs-tag-controls-slot') as HTMLElement
   const selectorSection = tab.root.querySelector('#rs-selector-section') as HTMLElement
   const selectSlot = tab.root.querySelector('#rs-select-slot') as HTMLElement
+  selectSlot.style.height = DROPDOWN_HEIGHT
   const selectAllBtn = tab.root.querySelector('#rs-select-all-btn') as HTMLButtonElement
   const deselectAllBtn = tab.root.querySelector('#rs-deselect-all-btn') as HTMLButtonElement
   const refreshBtn = tab.root.querySelector('#rs-refresh-btn') as HTMLButtonElement
