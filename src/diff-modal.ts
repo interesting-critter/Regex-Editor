@@ -6,6 +6,7 @@ export interface FieldDiffItem {
   sublabel?: string
   oldValue: string
   newValue: string
+  approved?: boolean
 }
 
 function escapeHtml(str: string): string {
@@ -71,11 +72,11 @@ function computeWordDiffHtml(oldStr: string, newStr: string): string {
 export function showDiffPreviewModal(
   ctx: SpindleFrontendContext,
   diffItems: FieldDiffItem[],
-  onConfirm: () => void
+  onConfirm: (approvedFields: FieldDiffItem[]) => void
 ) {
-  const modifiedFields = diffItems.filter((d) => d.oldValue !== d.newValue)
+const modifiedFields = diffItems.filter((d) => d.oldValue !== d.newValue)
 
-  if (modifiedFields.length === 0) {
+if (modifiedFields.length === 0) {
     return false
   }
 
@@ -135,8 +136,15 @@ export function showDiffPreviewModal(
     font-weight: 600;
     cursor: pointer;
   `
+
+  const approvedFields = new Set(modifiedFields.map((field) => field.fieldId))
+  
   applyBtn.addEventListener('click', () => {
-    onConfirm()
+    const approved = modifiedFields.filter((field) =>
+    approvedFields.has(field.fieldId)
+  )
+
+    onConfirm(approved)
     modal.dismiss()
   })
 
@@ -205,6 +213,44 @@ export function showDiffPreviewModal(
     const label = document.createElement('span')
     label.textContent = `▶ ${field.label}`
     header.appendChild(label)
+
+    const toggleLabel = document.createElement('label')
+    toggleLabel.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      flex-shrink: 0;
+    `
+
+    const toggle = document.createElement('input')
+    toggle.type = 'checkbox'
+    toggle.checked = true
+    toggle.style.cssText = `
+      width: 14px;
+      height: 14px;
+      margin: 0;
+      cursor: pointer;
+    `
+
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation()
+
+      if (toggle.checked) {
+        approvedFields.add(field.fieldId)
+      } else {
+        approvedFields.delete(field.fieldId)
+      }
+    })
+
+    const toggleText = document.createElement('span')
+    toggleText.textContent = 'Apply'
+
+    toggleLabel.append(toggle, toggleText)
+    header.appendChild(toggleLabel)
 
     if (field.sublabel) {
       const sublabel = document.createElement('span')
