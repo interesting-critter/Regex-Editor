@@ -952,12 +952,19 @@ export function setup(ctx: SpindleFrontendContext) {
     const marker = document.createElement('span')
     const style = window.getComputedStyle(textarea)
 
+    const paddingLeft = parseFloat(style.paddingLeft) || 0
+    const paddingRight = parseFloat(style.paddingRight) || 0
+    const contentWidth = Math.max(
+      0,
+      textarea.clientWidth - paddingLeft - paddingRight
+    )
+
     mirror.style.cssText = `
       position: fixed;
       left: -100000px;
       top: 0;
-      width: ${textarea.clientWidth}px;
-      box-sizing: border-box;
+      width: ${contentWidth}px;
+      box-sizing: content-box;
       padding: ${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft};
       font-family: ${style.fontFamily};
       font-size: ${style.fontSize};
@@ -965,9 +972,16 @@ export function setup(ctx: SpindleFrontendContext) {
       font-style: ${style.fontStyle};
       line-height: ${style.lineHeight};
       letter-spacing: ${style.letterSpacing};
-      white-space: pre-wrap;
-      overflow-wrap: break-word;
+      text-align: ${style.textAlign};
+      text-indent: ${style.textIndent};
+      text-transform: ${style.textTransform};
+      white-space: ${style.whiteSpace};
+      overflow-wrap: ${style.overflowWrap};
       word-break: ${style.wordBreak};
+      word-spacing: ${style.wordSpacing};
+      tab-size: ${style.tabSize};
+      direction: ${style.direction};
+      unicode-bidi: ${style.unicodeBidi};
       visibility: hidden;
       pointer-events: none;
     `
@@ -982,8 +996,10 @@ export function setup(ctx: SpindleFrontendContext) {
     mirror.appendChild(marker)
     document.body.appendChild(mirror)
 
-    const targetTop = marker.offsetTop
-    const targetCenter = targetTop + marker.offsetHeight / 2
+    const mirrorRect = mirror.getBoundingClientRect()
+    const markerRect = marker.getBoundingClientRect()
+    const targetTop = markerRect.top - mirrorRect.top
+    const targetCenter = targetTop + markerRect.height / 2
     const desiredScrollTop = Math.max(
       0,
       targetCenter - textarea.clientHeight / 2
