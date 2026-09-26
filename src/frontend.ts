@@ -939,48 +939,14 @@ export function setup(ctx: SpindleFrontendContext) {
     const selectionStart = match.startIndex
     const selectionEnd = match.startIndex + match.length
 
-    // A textarea does not expose the screen position of a character range.
-    // Instead of estimating wrapping with a div/span, use a literal clone of
-    // the actual textarea. Because the clone keeps the same class, attributes,
-    // dimensions, padding, font, line-height, scrollbar behavior, etc., the
-    // browser performs the same native selection scrolling on the clone.
-    const mirror = textarea.cloneNode(false) as HTMLTextAreaElement
-    mirror.value = textarea.value
-    mirror.readOnly = true
-    mirror.tabIndex = -1
-    mirror.setAttribute('aria-hidden', 'true')
-
-    const rect = textarea.getBoundingClientRect()
-    mirror.style.position = 'fixed'
-    mirror.style.left = `${rect.left}px`
-    mirror.style.top = `${rect.top}px`
-    mirror.style.width = `${rect.width}px`
-    mirror.style.height = `${rect.height}px`
-    mirror.style.margin = '0'
-    mirror.style.opacity = '0'
-    mirror.style.pointerEvents = 'none'
-    mirror.style.zIndex = '-1'
-    mirror.style.resize = 'none'
-
-    document.body.appendChild(mirror)
-
-    mirror.scrollTop = 0
-    mirror.scrollLeft = 0
-    mirror.focus({ preventScroll: true })
-    mirror.setSelectionRange(selectionStart, selectionEnd)
-
-    const maxScrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight)
-    const maxScrollLeft = Math.max(0, textarea.scrollWidth - textarea.clientWidth)
-
-    textarea.scrollTop = Math.min(mirror.scrollTop, maxScrollTop)
-    textarea.scrollLeft = Math.min(mirror.scrollLeft, maxScrollLeft)
-
-    mirror.remove()
-
-    // Keep the actual field selected/focused so the match is visibly
-    // highlighted and the next/previous buttons continue to behave normally.
-    textarea.focus({ preventScroll: true })
+    // Let the REAL textarea perform the scrolling. A collapsed caret at the
+    // match start makes the browser scroll to the exact native text position;
+    // only after that do we expand the selection to cover the match. This
+    // avoids trying to reproduce textarea line wrapping with a mirror.
+    textarea.setSelectionRange(selectionStart, selectionStart)
+    textarea.focus({ preventScroll: false })
     textarea.setSelectionRange(selectionStart, selectionEnd)
+
   }
 
   function nextMatch() {
