@@ -108,11 +108,11 @@ export function setup(ctx: SpindleFrontendContext) {
   // ── Styles ──
   const removeStyle = ctx.dom.addStyle(`
     /* CSS: Main Regex Studio wrapper; vertical layout, spacing, padding, and base text styling. */
-    .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); height: 100%; min-height: 0; box-sizing: border-box; }
+    .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); height: 100%; max-height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; }
     /* CSS: Generic horizontal flex row used throughout the UI; wraps on narrow screens. */
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     /* CSS: Keep the editor workspace fixed while only the field list scrolls. */
-    #rs-view-editor { overflow: hidden; }
+    #rs-view-editor { overflow: hidden; height: 100%; }
     /* CSS: Keep the regex controls and action toolbar visible above the scrolling fields. */
     #rs-regex-card { flex-shrink: 0; }
     .rs-action-toolbar { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; }
@@ -146,7 +146,7 @@ export function setup(ctx: SpindleFrontendContext) {
     /* CSS: Shared bordered panel/card container. */
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
     /* CSS: Scrollable stack of editable character/lorebook text fields; fills remaining editor space. */
-    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }
+    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; flex: 1 1 0; height: 0; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }
     
     /* CSS: Individual editable-field panel containing a field header and textarea. */
     .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
