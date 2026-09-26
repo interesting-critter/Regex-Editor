@@ -137,11 +137,13 @@ export function setup(ctx: SpindleFrontendContext) {
     
     /* CSS: Shared bordered panel/card container. */
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-    /* CSS: Scrollable stack of editable character/lorebook text fields. */
-    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
-    /* CSS: The editor view is the scrolling viewport; this lets everything above the regex controls scroll away while the regex card stays pinned. */
+    /* CSS: The editor view is the outer scrolling viewport. */
     #rs-view-editor { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-    /* CSS: Keeps the regex/navigation controls visible while the field content below them is scrolled. */
+    /* CSS: Editor content is one viewport-height page plus exactly enough extra height to scroll the regex card to the top. */
+    #rs-editor-content { display: flex; flex-direction: column; gap: 10px; min-height: calc(100% + var(--rs-scroll-extra, 0px)); box-sizing: border-box; }
+    /* CSS: Scrollable stack of editable character/lorebook text fields; this scrolls independently inside the editor page. */
+    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; padding-right: 2px; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+    /* CSS: Keeps the regex/navigation controls pinned while the outer editor scrolls the setup controls away. */
     #rs-regex-card { position: sticky; top: 0; z-index: 10; background: var(--lumiverse-fill); }
     
     /* CSS: Individual editable-field panel containing a field header and textarea. */
@@ -187,7 +189,8 @@ export function setup(ctx: SpindleFrontendContext) {
 
       <!-- HTML: TAB VIEW 1 — complete editor workspace. -->
       <!-- CSS: inline flex-column layout stacks source, filters, regex controls, and fields. -->
-      <div id="rs-view-editor" style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;">
+      <div id="rs-view-editor" style="flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;">
+        <div id="rs-editor-content">
         <!-- HTML: Source-mode toolbar; chooses what kind of content Regex Studio edits. -->
         <div class="rs-row">
           <!-- HTML: Source label. -->
@@ -317,12 +320,13 @@ export function setup(ctx: SpindleFrontendContext) {
           </div>
         </div>
 
-        <!-- HTML: Scrollable container holding one editable text panel per active character/lorebook field. -->
+        <!-- HTML: Inner scroll area holding one editable text panel per active character/lorebook field. -->
         <div id="rs-fields-container" class="rs-fields-list">
           <!-- HTML/CSS: Empty-state message shown before a source/field selection is made. -->
           <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
             Choose a Character Card or Lorebook above to display editable fields.
           </div>
+        </div>
         </div>
       </div>
 
@@ -335,6 +339,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const tabEditor = tab.root.querySelector('#rs-tab-editor') as HTMLElement
   const tabPipelines = tab.root.querySelector('#rs-tab-pipelines') as HTMLElement
   const viewEditor = tab.root.querySelector('#rs-view-editor') as HTMLElement
+  const editorContent = tab.root.querySelector('#rs-editor-content') as HTMLElement
   const viewPipelines = tab.root.querySelector('#rs-view-pipelines') as HTMLElement
 
   const modeCharBtn = tab.root.querySelector('#rs-mode-char') as HTMLButtonElement
@@ -359,6 +364,7 @@ export function setup(ctx: SpindleFrontendContext) {
   const runnerPresetSelect = tab.root.querySelector('#rs-runner-preset-select') as HTMLSelectElement
   const gotoPipelineBtn = tab.root.querySelector('#rs-goto-pipeline-btn') as HTMLButtonElement
 
+  const regexCard = tab.root.querySelector('#rs-regex-card') as HTMLElement
   const regexFindInput = tab.root.querySelector('#rs-regex-find') as HTMLInputElement
   const regexReplaceInput = tab.root.querySelector('#rs-regex-replace') as HTMLInputElement
   const regexToggleBtn = tab.root.querySelector('#rs-toggle-regex') as HTMLElement
@@ -373,6 +379,23 @@ export function setup(ctx: SpindleFrontendContext) {
   const replaceOneBtn = tab.root.querySelector('#rs-replace-one-btn') as HTMLButtonElement
   const replaceAllBtn = tab.root.querySelector('#rs-replace-all-btn') as HTMLButtonElement
   const fieldsContainer = tab.root.querySelector('#rs-fields-container') as HTMLElement
+
+  // The outer editor should be able to scroll only far enough to move the regex card
+  // from its original position to the top of the viewport. The fields themselves
+  // then use the remaining space as their own scroll area.
+  function updateEditorScrollLimit() {
+    const editorRect = viewEditor.getBoundingClientRect()
+    const regexRect = regexCard.getBoundingClientRect()
+    const extra = Math.max(0, regexRect.top - editorRect.top + viewEditor.scrollTop)
+    editorContent.style.setProperty('--rs-scroll-extra', `${extra}px`)
+  }
+
+  const editorResizeObserver = new ResizeObserver(() => {
+    updateEditorScrollLimit()
+  })
+  editorResizeObserver.observe(viewEditor)
+  editorResizeObserver.observe(regexCard)
+  requestAnimationFrame(updateEditorScrollLimit)
 
   const undoBtn = tab.root.querySelector('#rs-undo-btn') as HTMLButtonElement
   const redoBtn = tab.root.querySelector('#rs-redo-btn') as HTMLButtonElement
