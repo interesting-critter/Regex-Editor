@@ -866,8 +866,6 @@ export function setup(ctx: SpindleFrontendContext) {
 
     const match = currentMatches[currentMatchIndex]
 
-    // If all fields are normally open, leave them that way.
-    // Otherwise, automatically open the field containing the match.
     if (!fieldsExpanded) {
       if (autoOpenedFieldId && autoOpenedFieldId !== match.fieldId) {
         const previousTextarea = fieldsContainer.querySelector(
@@ -932,31 +930,57 @@ export function setup(ctx: SpindleFrontendContext) {
 
     if (!textarea) return
 
-    // Bring the field itself into the visible field-scroll area first.
-    // Do this without animation so the textarea can immediately position its
-    // own internal selection viewport afterward.
+    // First bring the field itself into the visible field-scroll area.
     textarea.scrollIntoView({
       block: 'nearest',
       behavior: 'auto',
     })
 
-    // Let the textarea itself do the positioning.  The browser already knows
-    // the exact wrapped-line position of a selection inside a textarea; using
-    // a div/span or a second textarea to estimate that position introduces
-    // small wrapping differences that accumulate farther down the field.
-    //
-    // Set the selection BEFORE focusing.  On Chromium/WebKit this causes the
-    // native focus/selection handling to scroll the textarea's internal
-    // viewport directly to the selected text.
-    textarea.setSelectionRange(
-      match.startIndex,
-      match.startIndex + match.length
-    )
+    const selectionStart = match.startIndex
+    const selectionEnd = match.startIndex + match.length
+
+    // A textarea does not expose the screen position of a character range.
+    // Instead of estimating wrapping with a div/span, use a literal clone of
+    // the actual textarea. Because the clone keeps the same class, attributes,
+    // dimensions, padding, font, line-height, scrollbar behavior, etc., the
+    // browser performs the same native selection scrolling on the clone.
+    const mirror = textarea.cloneNode(false) as HTMLTextAreaElement
+    mirror.value = textarea.value
+    mirror.readOnly = true
+    mirror.tabIndex = -1
+    mirror.setAttribute('aria-hidden', 'true')
+
+    const rect = textarea.getBoundingClientRect()
+    mirror.style.position = 'fixed'
+    mirror.style.left = `${rect.left}px`
+    mirror.style.top = `${rect.top}px`
+    mirror.style.width = `${rect.width}px`
+    mirror.style.height = `${rect.height}px`
+    mirror.style.margin = '0'
+    mirror.style.opacity = '0'
+    mirror.style.pointerEvents = 'none'
+    mirror.style.zIndex = '-1'
+    mirror.style.resize = 'none'
+
+    document.body.appendChild(mirror)
+
+    mirror.scrollTop = 0
+    mirror.scrollLeft = 0
+    mirror.focus({ preventScroll: true })
+    mirror.setSelectionRange(selectionStart, selectionEnd)
+
+    const maxScrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight)
+    const maxScrollLeft = Math.max(0, textarea.scrollWidth - textarea.clientWidth)
+
+    textarea.scrollTop = Math.min(mirror.scrollTop, maxScrollTop)
+    textarea.scrollLeft = Math.min(mirror.scrollLeft, maxScrollLeft)
+
+    mirror.remove()
+
+    // Keep the actual field selected/focused so the match is visibly
+    // highlighted and the next/previous buttons continue to behave normally.
     textarea.focus({ preventScroll: true })
-    textarea.setSelectionRange(
-      match.startIndex,
-      match.startIndex + match.length
-    )
+    textarea.setSelectionRange(selectionStart, selectionEnd)
   }
 
   function nextMatch() {
