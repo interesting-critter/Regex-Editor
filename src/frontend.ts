@@ -79,12 +79,16 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-  // Single Regex & Navigation State
-  let useRegex = true
-  let previewDiffEnabled = true
-  const flags = { g: true, i: false, m: true, s: true }
-  let currentMatches: RegexMatch[] = []
-  let currentMatchIndex = -1
+    // Single Regex & Navigation State
+    let useRegex = true
+    let previewDiffEnabled = true
+    const flags = { g: true, i: false, m: true, s: true }
+    let currentMatches: RegexMatch[] = []
+    let currentMatchIndex = -1
+
+    // Field expansion state
+    let fieldsExpanded = localStorage.getItem('regex-studio-fields-expanded') === 'true'
+    let autoOpenedFieldId: string | null = null
 
   // Undo / Redo History Stack
   let historyStack: FieldItem[][] = [[]]
@@ -228,6 +232,11 @@ export function setup(ctx: SpindleFrontendContext) {
             <!-- HTML: Undo/redo history controls. -->
             <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
             <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
+
+            <!-- HTML: Opens or closes all editor fields. -->
+            <button class="rs-btn" id="rs-toggle-fields-btn" title="Open or close all fields">
+              ${fieldsExpanded ? 'Close All' : 'Open All'}
+            </button>
           </div>
           <div class="rs-row">
             <!-- HTML: Copies all current field contents to the clipboard. -->
@@ -363,6 +372,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
   const undoBtn = tab.root.querySelector('#rs-undo-btn') as HTMLButtonElement
   const redoBtn = tab.root.querySelector('#rs-redo-btn') as HTMLButtonElement
+  const toggleFieldsBtn = tab.root.querySelector('#rs-toggle-fields-btn') as HTMLButtonElement
   const copyBtn = tab.root.querySelector('#rs-copy-btn') as HTMLButtonElement
   const resetBtn = tab.root.querySelector('#rs-reset-btn') as HTMLButtonElement
   const saveBtn = tab.root.querySelector('#rs-save-btn') as HTMLButtonElement
@@ -575,6 +585,32 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   })
 
+  function updateAllFieldsOpenState() {
+    fieldsContainer.querySelectorAll('.rs-field-textarea').forEach((element) => {
+      const textarea = element as HTMLTextAreaElement
+      textarea.style.display = fieldsExpanded ? 'block' : 'none'
+
+      const box = textarea.parentElement
+      const header = box?.querySelector('.rs-field-header') as HTMLElement | null
+      const labelSpan = header?.querySelector('span') as HTMLElement | null
+
+      if (header) {
+        header.style.borderBottom = fieldsExpanded
+          ? '1px solid var(--lumiverse-border)'
+          : 'none'
+      }
+
+      if (labelSpan) {
+        const field = fields.find((f) => f.id === textarea.dataset.fieldId)
+        if (field) {
+          labelSpan.textContent = `${fieldsExpanded ? '▼' : '▶'} ${field.label}`
+        }
+      }
+    })
+
+    toggleFieldsBtn.textContent = fieldsExpanded ? 'Close All' : 'Open All'
+  }
+
   // ── DOM Multi-Field Rendering ──
   function renderFieldsDOM() {
     fieldsContainer.innerHTML = ''
@@ -610,7 +646,7 @@ export function setup(ctx: SpindleFrontendContext) {
       textarea.value = field.value
       textarea.dataset.fieldId = field.id
       textarea.placeholder = `Enter content here...`
-      textarea.style.display = 'none'
+      textarea.style.display = fieldsExpanded ? 'block' : 'none''
 
       textarea.oninput = () => {
         field.value = textarea.value
@@ -622,20 +658,21 @@ export function setup(ctx: SpindleFrontendContext) {
         }, 600)
       }
 
-    header.addEventListener('click', () => {
-      const isOpen = textarea.style.display !== 'none'
+      header.addEventListener('click', () => {
+        const isOpen = textarea.style.display !== 'none'
+        const nextOpen = !isOpen
 
-      textarea.style.display = isOpen ? 'none' : 'block'
+        textarea.style.display = nextOpen ? 'block' : 'none'
 
-      const labelSpan = header.querySelector('span')
-      if (labelSpan) {
-      labelSpan.textContent = `${isOpen ? '▶' : '▼'} ${field.label}`
-     }
+        const labelSpan = header.querySelector('span')
+        if (labelSpan) {
+          labelSpan.textContent = `${nextOpen ? '▼' : '▶'} ${field.label}`
+        }
 
-      header.style.borderBottom = isOpen
-        ? '1px solid var(--lumiverse-border)'
-        : 'none'
-    })
+        header.style.borderBottom = nextOpen
+          ? '1px solid var(--lumiverse-border)'
+          : 'none'
+      })
 
       box.appendChild(header)
       box.appendChild(textarea)
@@ -798,12 +835,97 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function highlightCurrentMatch() {
     if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) return
+
     const match = currentMatches[currentMatchIndex]
-    const textarea = fieldsContainer.querySelector(`[data-field-id="${match.fieldId}"]`) as HTMLTextAreaElement | null
-    if (textarea) {
-      textarea.focus()
-      textarea.setSelectionRange(match.startIndex, match.startIndex + match.length)
-      textarea.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+
+    // If all fields are normally open, leave them that way.
+    // Otherwise, automatically open the field containing the match.
+    if (!fieldsExpanded) {
+      if (autoOpenedFieldId && autoOpenedFieldId !== match.fieldId) {
+        const previousTextarea = fieldsContainer.querySelector(
+          `[data-field-id="${autoOpenedFieldId}"]`
+        ) as HTMLTextAreaElement | null
+
+        if (previousTextarea) {
+          previousTextarea.style.display = 'none'
+
+          const previousHeader = previousTextarea.parentElement?.querySelector(
+            '.rs-field-header'
+          ) as HTMLElement | null
+
+          const previousLabel = previousHeader?.querySelector('span') as HTMLElement | null
+
+          if (previousLabel) {
+            const previousField = fields.find((f) => f.id === autoOpenedFieldId)
+            if (previousField) {
+              previousLabel.textContent = `▶ ${previousField.label}`
+            }
+          }
+
+          if (previousHeader) {
+            previousHeader.style.borderBottom = 'none'
+          }
+        }
+
+        autoOpenedFieldId = null
+      }
+
+      const targetTextarea = fieldsContainer.querySelector(
+        `[data-field-id="${match.fieldId}"]`
+      ) as HTMLTextAreaElement | null
+
+      if (targetTextarea && targetTextarea.style.display === 'none') {
+        targetTextarea.style.display = 'block'
+
+        const targetHeader = targetTextarea.parentElement?.querySelector(
+          '.rs-field-header'
+        ) as HTMLElement | null
+
+        const targetLabel = targetHeader?.querySelector('span') as HTMLElement | null
+
+        if (targetLabel) {
+          const targetField = fields.find((f) => f.id === match.fieldId)
+          if (targetField) {
+            targetLabel.textContent = `▼ ${targetField.label}`
+          }
+        }
+
+        if (targetHeader) {
+          targetHeader.style.borderBottom = '1px solid var(--lumiverse-border)'
+        }
+
+        autoOpenedFieldId = match.fieldId
+      }
+    }
+
+    const textarea = fieldsContainer.querySelector(
+      `[data-field-id="${match.fieldId}"]`
+    ) as HTMLTextAreaElement | null
+
+    if (!textarea) return
+
+    textarea.setSelectionRange(
+      match.startIndex,
+      match.startIndex + match.length
+    )
+
+    textarea.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth',
+    })
+
+    // Desktop: focus the textarea as before.
+    // Mobile: don't focus it, because focusing a textarea opens the keyboard.
+    const isMobile =
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0
+
+    if (!isMobile) {
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(
+        match.startIndex,
+        match.startIndex + match.length
+      )
     }
   }
 
@@ -1012,6 +1134,13 @@ export function setup(ctx: SpindleFrontendContext) {
   undoBtn.onclick = () => undo()
   redoBtn.onclick = () => redo()
 
+  toggleFieldsBtn.onclick = () => {
+    fieldsExpanded = !fieldsExpanded
+    localStorage.setItem('regex-studio-fields-expanded', String(fieldsExpanded))
+    autoOpenedFieldId = null
+    updateAllFieldsOpenState()
+  }
+  
   nextMatchBtn.onclick = () => nextMatch()
   prevMatchBtn.onclick = () => prevMatch()
   replaceOneBtn.onclick = () => replaceSingleMatch()
