@@ -944,28 +944,26 @@ export function setup(ctx: SpindleFrontendContext) {
       match.startIndex + match.length
     )
 
-    // Browsers do not consistently scroll a textarea's internal content when
-    // a selection is changed programmatically. Build a temporary, invisible
-    // text mirror with the same wrapping/font metrics so we can determine the
-    // vertical position of the selected match and set scrollTop explicitly.
-    const mirror = document.createElement('div')
-    const marker = document.createElement('span')
+    // Use a real textarea as the measurement mirror. Unlike a div/span mirror,
+    // a cloned textarea uses the browser's exact textarea wrapping algorithm,
+    // including scrollbar width, padding, tabs, and line-breaking behavior.
+    const mirror = document.createElement('textarea')
     const style = window.getComputedStyle(textarea)
 
-    const paddingLeft = parseFloat(style.paddingLeft) || 0
-    const paddingRight = parseFloat(style.paddingRight) || 0
-    const contentWidth = Math.max(
-      0,
-      textarea.clientWidth - paddingLeft - paddingRight
-    )
-
+    mirror.value = textarea.value
+    mirror.readOnly = true
+    mirror.tabIndex = -1
+    mirror.setAttribute('aria-hidden', 'true')
     mirror.style.cssText = `
       position: fixed;
       left: -100000px;
       top: 0;
-      width: ${contentWidth}px;
-      box-sizing: content-box;
+      width: ${textarea.getBoundingClientRect().width}px;
+      height: ${textarea.getBoundingClientRect().height}px;
+      box-sizing: ${style.boxSizing};
       padding: ${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft};
+      margin: ${style.marginTop} ${style.marginRight} ${style.marginBottom} ${style.marginLeft};
+      border: ${style.borderTopWidth} ${style.borderTopStyle} transparent;
       font-family: ${style.fontFamily};
       font-size: ${style.fontSize};
       font-weight: ${style.fontWeight};
@@ -982,31 +980,31 @@ export function setup(ctx: SpindleFrontendContext) {
       tab-size: ${style.tabSize};
       direction: ${style.direction};
       unicode-bidi: ${style.unicodeBidi};
+      overflow: ${style.overflow};
       visibility: hidden;
       pointer-events: none;
     `
 
-    mirror.appendChild(document.createTextNode(
-      textarea.value.slice(0, match.startIndex)
-    ))
-    marker.textContent = textarea.value.slice(
-      match.startIndex,
-      match.startIndex + match.length
-    ) || ' '
-    mirror.appendChild(marker)
     document.body.appendChild(mirror)
 
-    const mirrorRect = mirror.getBoundingClientRect()
-    const markerRect = marker.getBoundingClientRect()
-    const targetTop = markerRect.top - mirrorRect.top
-    const targetCenter = targetTop + markerRect.height / 2
-    const desiredScrollTop = Math.max(
-      0,
-      targetCenter - textarea.clientHeight / 2
+    // Selecting text in a real textarea makes the browser calculate the exact
+    // internal scroll position needed to reveal that selection.
+    mirror.setSelectionRange(
+      match.startIndex,
+      match.startIndex + match.length
+    )
+
+    // A selection change alone does not always trigger scrolling on a hidden
+    // clone, so briefly make it the active element without allowing the browser
+    // to move the page itself.
+    mirror.focus({ preventScroll: true })
+    mirror.setSelectionRange(
+      match.startIndex,
+      match.startIndex + match.length
     )
 
     textarea.scrollTop = Math.min(
-      desiredScrollTop,
+      mirror.scrollTop,
       Math.max(0, textarea.scrollHeight - textarea.clientHeight)
     )
 
