@@ -108,7 +108,7 @@ export function setup(ctx: SpindleFrontendContext) {
   // ── Styles ──
   const removeStyle = ctx.dom.addStyle(`
     /* CSS: Main Regex Studio wrapper; vertical layout, spacing, padding, and base text styling. */
-    .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); height: 100%; min-height: 0; box-sizing: border-box; }
+    .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); height: 100%; min-height: 0; box-sizing: border-box; overflow: hidden; }
     /* CSS: Generic horizontal flex row used throughout the UI; wraps on narrow screens. */
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     /* CSS: Small bold heading used for labels such as "Source:". */
@@ -137,8 +137,12 @@ export function setup(ctx: SpindleFrontendContext) {
     
     /* CSS: Shared bordered panel/card container. */
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
-    /* CSS: Scrollable stack of editable character/lorebook text fields; fills remaining editor space. */
-    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; flex: 1; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }
+    /* CSS: Scrollable stack of editable character/lorebook text fields. */
+    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
+    /* CSS: The editor view is the scrolling viewport; this lets everything above the regex controls scroll away while the regex card stays pinned. */
+    #rs-view-editor { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+    /* CSS: Keeps the regex/navigation controls visible while the field content below them is scrolled. */
+    #rs-regex-card { position: sticky; top: 0; z-index: 10; background: var(--lumiverse-fill); }
     
     /* CSS: Individual editable-field panel containing a field header and textarea. */
     .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
@@ -160,11 +164,6 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
     /* CSS: Makes the native WebKit color swatch fill the circular picker cleanly. */
     .rs-color-swatch::-webkit-color-swatch { border: none; border-radius: 50%; }
-
-    /* CSS: Top control region; this area can scroll while the regex/navigation and field editor remain fixed below it. */
-    .rs-editor-top { flex: 0 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-right: 2px; }
-    /* CSS: Bottom editor region; stays visible while the controls above it scroll away. */
-    .rs-editor-bottom { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
 
     /* CSS: Container for the Editor / Pipelines & Presets navigation tabs. */
     .rs-nav-tabs { display: flex; border-bottom: 1px solid var(--lumiverse-border); margin-bottom: 4px; }
@@ -188,56 +187,51 @@ export function setup(ctx: SpindleFrontendContext) {
 
       <!-- HTML: TAB VIEW 1 — complete editor workspace. -->
       <!-- CSS: inline flex-column layout stacks source, filters, regex controls, and fields. -->
-      <div id="rs-view-editor" style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0;">
-        <!-- HTML: Top control region. Everything in this section is allowed to scroll away; the editor controls below remain fixed. -->
-        <div class="rs-editor-top">
-          <!-- HTML: Source-mode toolbar; chooses what kind of content Regex Studio edits. -->
-          <div class="rs-row">
-            <!-- HTML: Source label. -->
-            <label class="rs-header-title">Source:</label>
-            <!-- HTML: Edits one character card. -->
-            <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character</button>
-            <!-- HTML: Enables multi-card/batch editing. -->
-            <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
-            <!-- HTML: Edits lorebook/world-book entries. -->
-            <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
-            <!-- HTML: Provides a standalone scratchpad/custom text editor. -->
-            <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
-          </div>
-
-          <!-- HTML: Tag filter panel; shown for character and character-batch modes. -->
-          <div id="rs-tag-filters-section" class="rs-card">
-            <!-- HTML/CSS: Section title for include/exclude character-tag filtering. -->
-            <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
-            <!-- HTML: Mount point populated by tag-filter.ts with the two multi-select controls. -->
-            <div id="rs-tag-controls-slot"></div>
-          </div>
-
-          <!-- HTML: Content-selection area; receives either a single-select or multi-select control. -->
-          <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
-            <!-- HTML/CSS: Mount point for the current character/lorebook selector or batch multi-select. -->
-            <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
-            <!-- HTML: Batch-only action that selects every currently filtered character. -->
-            <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
-            <!-- HTML: Batch-only action that clears all selected characters. -->
-            <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
-            <!-- HTML: Reloads the available characters/lorebooks from the backend. -->
-            <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
-          </div>
-
-          <!-- HTML: Field-filter panel; controls which character fields are loaded into the editor. -->
-          <div id="rs-fields-filter" class="rs-card">
-            <!-- HTML/CSS: Label explaining that the chips control editable character fields. -->
-            <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
-            <!-- HTML: Dynamic mount point where one chip is created for each CHAR_FIELDS definition. -->
-            <div class="rs-row" id="rs-chips-container"></div>
-          </div>
+      <div id="rs-view-editor" style="display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden;">
+        <!-- HTML: Source-mode toolbar; chooses what kind of content Regex Studio edits. -->
+        <div class="rs-row">
+          <!-- HTML: Source label. -->
+          <label class="rs-header-title">Source:</label>
+          <!-- HTML: Edits one character card. -->
+          <button class="rs-btn rs-btn-primary" id="rs-mode-char">Character</button>
+          <!-- HTML: Enables multi-card/batch editing. -->
+          <button class="rs-btn" id="rs-mode-batch">Character Batch</button>
+          <!-- HTML: Edits lorebook/world-book entries. -->
+          <button class="rs-btn" id="rs-mode-lore">Lorebook</button>
+          <!-- HTML: Provides a standalone scratchpad/custom text editor. -->
+          <button class="rs-btn" id="rs-mode-custom">Custom Text</button>
         </div>
 
-        <!-- HTML: Bottom editor region. This remains visible while the top source/filter controls scroll away. -->
-        <div class="rs-editor-bottom">
-          <!-- HTML: Main editing action toolbar for history, copying, resetting, and saving. -->
-          <div class="rs-row" style="justify-content: space-between;">
+        <!-- HTML: Tag filter panel; shown for character and character-batch modes. -->
+        <div id="rs-tag-filters-section" class="rs-card">
+          <!-- HTML/CSS: Section title for include/exclude character-tag filtering. -->
+          <div style="font-weight: 500; font-size: 11.5px;">Tag Filters:</div>
+          <!-- HTML: Mount point populated by tag-filter.ts with the two multi-select controls. -->
+          <div id="rs-tag-controls-slot"></div>
+        </div>
+
+        <!-- HTML: Content-selection area; receives either a single-select or multi-select control. -->
+        <div id="rs-selector-section" class="rs-row" style="align-items: stretch;">
+          <!-- HTML/CSS: Mount point for the current character/lorebook selector or batch multi-select. -->
+          <div id="rs-select-slot" style="flex: 1; min-width: 200px;"></div>
+          <!-- HTML: Batch-only action that selects every currently filtered character. -->
+          <button class="rs-btn" id="rs-select-all-btn" style="display: none;">Select All</button>
+          <!-- HTML: Batch-only action that clears all selected characters. -->
+          <button class="rs-btn" id="rs-deselect-all-btn" style="display: none;">Deselect All</button>
+          <!-- HTML: Reloads the available characters/lorebooks from the backend. -->
+          <button class="rs-btn" id="rs-refresh-btn">Refresh</button>
+        </div>
+
+        <!-- HTML: Field-filter panel; controls which character fields are loaded into the editor. -->
+        <div id="rs-fields-filter" class="rs-card">
+          <!-- HTML/CSS: Label explaining that the chips control editable character fields. -->
+          <div style="font-weight: 500; font-size: 11.5px;">Include Fields in Editor:</div>
+          <!-- HTML: Dynamic mount point where one chip is created for each CHAR_FIELDS definition. -->
+          <div class="rs-row" id="rs-chips-container"></div>
+        </div>
+
+        <!-- HTML: Main editing action toolbar for history, copying, resetting, and saving. -->
+        <div class="rs-row" style="justify-content: space-between;">
           <div class="rs-row">
             <!-- HTML: Undo/redo history controls. -->
             <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
@@ -324,11 +318,10 @@ export function setup(ctx: SpindleFrontendContext) {
         </div>
 
         <!-- HTML: Scrollable container holding one editable text panel per active character/lorebook field. -->
-          <div id="rs-fields-container" class="rs-fields-list">
-            <!-- HTML/CSS: Empty-state message shown before a source/field selection is made. -->
-            <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
-              Choose a Character Card or Lorebook above to display editable fields.
-            </div>
+        <div id="rs-fields-container" class="rs-fields-list">
+          <!-- HTML/CSS: Empty-state message shown before a source/field selection is made. -->
+          <div style="text-align: center; color: var(--lumiverse-text-dim); padding: 24px;">
+            Choose a Character Card or Lorebook above to display editable fields.
           </div>
         </div>
       </div>
