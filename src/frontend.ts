@@ -933,83 +933,30 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!textarea) return
 
     // Bring the field itself into the visible field-scroll area first.
+    // Do this without animation so the textarea can immediately position its
+    // own internal selection viewport afterward.
     textarea.scrollIntoView({
       block: 'nearest',
-      behavior: 'smooth',
+      behavior: 'auto',
     })
 
-    textarea.focus()
+    // Let the textarea itself do the positioning.  The browser already knows
+    // the exact wrapped-line position of a selection inside a textarea; using
+    // a div/span or a second textarea to estimate that position introduces
+    // small wrapping differences that accumulate farther down the field.
+    //
+    // Set the selection BEFORE focusing.  On Chromium/WebKit this causes the
+    // native focus/selection handling to scroll the textarea's internal
+    // viewport directly to the selected text.
     textarea.setSelectionRange(
       match.startIndex,
       match.startIndex + match.length
     )
-
-    // Use a real textarea as the measurement mirror. Unlike a div/span mirror,
-    // a cloned textarea uses the browser's exact textarea wrapping algorithm,
-    // including scrollbar width, padding, tabs, and line-breaking behavior.
-    const mirror = document.createElement('textarea')
-    const style = window.getComputedStyle(textarea)
-
-    mirror.value = textarea.value
-    mirror.readOnly = true
-    mirror.tabIndex = -1
-    mirror.setAttribute('aria-hidden', 'true')
-    mirror.style.cssText = `
-      position: fixed;
-      left: -100000px;
-      top: 0;
-      width: ${textarea.getBoundingClientRect().width}px;
-      height: ${textarea.getBoundingClientRect().height}px;
-      box-sizing: ${style.boxSizing};
-      padding: ${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft};
-      margin: ${style.marginTop} ${style.marginRight} ${style.marginBottom} ${style.marginLeft};
-      border: ${style.borderTopWidth} ${style.borderTopStyle} transparent;
-      font-family: ${style.fontFamily};
-      font-size: ${style.fontSize};
-      font-weight: ${style.fontWeight};
-      font-style: ${style.fontStyle};
-      line-height: ${style.lineHeight};
-      letter-spacing: ${style.letterSpacing};
-      text-align: ${style.textAlign};
-      text-indent: ${style.textIndent};
-      text-transform: ${style.textTransform};
-      white-space: ${style.whiteSpace};
-      overflow-wrap: ${style.overflowWrap};
-      word-break: ${style.wordBreak};
-      word-spacing: ${style.wordSpacing};
-      tab-size: ${style.tabSize};
-      direction: ${style.direction};
-      unicode-bidi: ${style.unicodeBidi};
-      overflow: ${style.overflow};
-      visibility: hidden;
-      pointer-events: none;
-    `
-
-    document.body.appendChild(mirror)
-
-    // Selecting text in a real textarea makes the browser calculate the exact
-    // internal scroll position needed to reveal that selection.
-    mirror.setSelectionRange(
+    textarea.focus({ preventScroll: true })
+    textarea.setSelectionRange(
       match.startIndex,
       match.startIndex + match.length
     )
-
-    // A selection change alone does not always trigger scrolling on a hidden
-    // clone, so briefly make it the active element without allowing the browser
-    // to move the page itself.
-    mirror.focus({ preventScroll: true })
-    mirror.setSelectionRange(
-      match.startIndex,
-      match.startIndex + match.length
-    )
-
-    textarea.scrollTop = Math.min(
-      mirror.scrollTop,
-      Math.max(0, textarea.scrollHeight - textarea.clientHeight)
-    )
-
-    mirror.remove()
-  }
 
   function nextMatch() {
     if (currentMatches.length === 0) return
