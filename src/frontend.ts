@@ -111,6 +111,14 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); height: 100%; min-height: 0; box-sizing: border-box; }
     /* CSS: Generic horizontal flex row used throughout the UI; wraps on narrow screens. */
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    /* CSS: Keep the editor workspace fixed while only the field list scrolls. */
+    #rs-view-editor { overflow: hidden; }
+    /* CSS: Keep the regex controls and action toolbar visible above the scrolling fields. */
+    #rs-regex-card { flex-shrink: 0; }
+    .rs-action-toolbar { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; }
+    .rs-action-toolbar .rs-btn { flex-shrink: 0; }
+    .rs-action-toolbar::-webkit-scrollbar { display: none; }
+    .rs-action-toolbar { scrollbar-width: none; }
     /* CSS: Small bold heading used for labels such as "Source:". */
     .rs-header-title { font-weight: 600; font-size: 13.5px; }
     /* CSS: Shared appearance for text inputs and select controls. */
@@ -243,25 +251,23 @@ export function setup(ctx: SpindleFrontendContext) {
         </details>
 
         <!-- HTML: Main editing action toolbar for history, copying, resetting, and saving. -->
-        <div class="rs-row" style="justify-content: space-between;">
-          <div class="rs-row">
-            <!-- HTML: Undo/redo history controls. -->
-            <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
-            <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
+        <!-- HTML: Compact single-row action toolbar; kept fixed above the scrolling field list. -->
+        <div class="rs-row rs-action-toolbar">
+          <!-- HTML: Undo/redo history controls. -->
+          <button class="rs-btn" id="rs-undo-btn" title="Undo change" disabled>↶ Undo</button>
+          <button class="rs-btn" id="rs-redo-btn" title="Redo change" disabled>↷ Redo</button>
 
-            <!-- HTML: Opens or closes all editor fields. -->
-            <button class="rs-btn" id="rs-toggle-fields-btn" title="Open or close all fields">
-              ${fieldsExpanded ? 'Close All' : 'Open All'}
-            </button>
-          </div>
-          <div class="rs-row">
-            <!-- HTML: Copies all current field contents to the clipboard. -->
-            <button class="rs-btn" id="rs-copy-btn">Copy All</button>
-            <!-- HTML: Restores the selected source data back into the editor. -->
-            <button class="rs-btn" id="rs-reset-btn">Reset All</button>
-            <!-- HTML: Persists the current edits through the backend. -->
-            <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
-          </div>
+          <!-- HTML: Opens or closes all editor fields. -->
+          <button class="rs-btn" id="rs-toggle-fields-btn" title="Open or close all fields">
+            ${fieldsExpanded ? 'Close All' : 'Open All'}
+          </button>
+
+          <!-- HTML: Copies all current field contents to the clipboard. -->
+          <button class="rs-btn" id="rs-copy-btn">Copy All</button>
+          <!-- HTML: Restores the selected source data back into the editor. -->
+          <button class="rs-btn" id="rs-reset-btn">Reset All</button>
+          <!-- HTML: Persists the current edits through the backend. -->
+          <button class="rs-btn rs-btn-primary" id="rs-save-btn">Save Changes</button>
         </div>
 
         <!-- HTML: Regex/pipeline execution panel. This is the control center for single-regex replacement or preset execution. -->
