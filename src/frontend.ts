@@ -147,29 +147,12 @@ export function setup(ctx: SpindleFrontendContext) {
     /* CSS: Secondary field metadata such as the card name or lorebook entry ID. */
     .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
     
-    /* CSS: Wrapper used by the mobile highlight mirror and the real editable textarea. */
-    .rs-field-editor { position: relative; width: 100%; }
-    /* CSS: Mobile highlight mirror; matches textarea typography/padding so highlighted text lines up exactly. */
-    .rs-field-highlight { position: absolute; inset: 0; z-index: 0; box-sizing: border-box; padding: 8px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; color: var(--lumiverse-text); white-space: pre-wrap; overflow: hidden; overflow-wrap: break-word; word-break: break-word; pointer-events: none; }
-    /* CSS: Match span inside the mobile mirror; uses the same configurable highlight color as desktop selection. */
-    .rs-field-highlight mark { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; padding: 0; }
     /* CSS: Main editor textarea; fixed starting height, monospace text, and vertical resize support. */
-    .rs-field-textarea { position: relative; z-index: 1; width: 100%; min-height: 250px; height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
+    .rs-field-textarea { width: 100%; min-height: 250px; height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
     /* CSS: Focus state for an editor textarea; adds a subtle background to show active editing. */
     .rs-field-textarea:focus { background: var(--lumiverse-fill-subtle); }
     /* CSS: Text-selection highlight; uses the user-selected regex highlight color. */
     .rs-field-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
-
-    /* CSS: Mobile-only mirror mode; the real textarea becomes visually transparent while remaining editable. */
-    @media (hover: none) and (pointer: coarse) {
-      .rs-field-textarea { color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--lumiverse-text); }
-      .rs-field-textarea:focus { background: transparent; }
-    }
-
-    /* CSS: Desktop/non-touch devices do not need the mirror layer. */
-    @media (hover: hover) and (pointer: fine) {
-      .rs-field-highlight { display: none; }
-    }
 
     /* CSS: Circular color-picker control used to choose the match-selection highlight color. */
     .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
@@ -656,15 +639,6 @@ export function setup(ctx: SpindleFrontendContext) {
         ${field.sublabel ? `<span class="rs-field-sub">${field.sublabel}</span>` : ''}
       `
 
-      // HTML: Wrapper keeps the mobile highlight mirror directly behind the editable textarea.
-      const editor = document.createElement('div')
-      editor.className = 'rs-field-editor'
-
-      // HTML: Mobile-only visual mirror; the real textarea remains the editable/input layer above it.
-      const highlightLayer = document.createElement('div')
-      highlightLayer.className = 'rs-field-highlight'
-      highlightLayer.setAttribute('aria-hidden', 'true')
-
       // HTML: Editable text area containing the actual character/lorebook/custom text value.
       // CSS: .rs-field-textarea controls typography, dimensions, selection color, and resize behavior.
       const textarea = document.createElement('textarea')
@@ -673,9 +647,6 @@ export function setup(ctx: SpindleFrontendContext) {
       textarea.dataset.fieldId = field.id
       textarea.placeholder = `Enter content here...`
       textarea.style.display = fieldsExpanded ? 'block' : 'none'
-
-      editor.appendChild(highlightLayer)
-      editor.appendChild(textarea)
 
       textarea.oninput = () => {
         field.value = textarea.value
@@ -686,11 +657,6 @@ export function setup(ctx: SpindleFrontendContext) {
           pushHistory(fields)
         }, 600)
       }
-
-      textarea.addEventListener('scroll', () => {
-        highlightLayer.scrollTop = textarea.scrollTop
-        highlightLayer.scrollLeft = textarea.scrollLeft
-      })
 
       header.addEventListener('click', () => {
         const isOpen = textarea.style.display !== 'none'
@@ -709,7 +675,7 @@ export function setup(ctx: SpindleFrontendContext) {
       })
 
       box.appendChild(header)
-      box.appendChild(editor)
+      box.appendChild(textarea)
       fieldsContainer.appendChild(box)
     })
 
@@ -811,48 +777,6 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   }
 
-  function escapeHtml(str: string): string {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\"/g, '&quot;')
-      .replace(/'/g, '&#39;')
-  }
-
-  function updateMobileMatchHighlight() {
-    const layers = fieldsContainer.querySelectorAll('.rs-field-highlight')
-
-    layers.forEach((element) => {
-      const layer = element as HTMLElement
-      const fieldId = (layer.parentElement?.querySelector('.rs-field-textarea') as HTMLTextAreaElement | null)?.dataset.fieldId
-      const field = fields.find((item) => item.id === fieldId)
-
-      if (!field) {
-        layer.textContent = ''
-        return
-      }
-
-      const match =
-        currentMatchIndex >= 0 &&
-        currentMatchIndex < currentMatches.length &&
-        currentMatches[currentMatchIndex].fieldId === field.id
-          ? currentMatches[currentMatchIndex]
-          : null
-
-      if (!match || match.length === 0) {
-        layer.textContent = field.value
-        return
-      }
-
-      const before = field.value.slice(0, match.startIndex)
-      const matched = field.value.slice(match.startIndex, match.startIndex + match.length)
-      const after = field.value.slice(match.startIndex + match.length)
-
-      layer.innerHTML = `${escapeHtml(before)}<mark>${escapeHtml(matched)}</mark>${escapeHtml(after)}`
-    })
-  }
-
   function scanMatches(opts: { shouldFocus?: boolean; preserveIndex?: boolean } = {}) {
     if (isPresetRunMode) return
     const rx = getActiveRegExp()
@@ -892,8 +816,6 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function updateMatchUI(shouldFocus: boolean) {
-    updateMobileMatchHighlight()
-
     const total = currentMatches.length
     if (total === 0) {
       matchCountSpan.textContent = 'No matches'
@@ -982,8 +904,6 @@ export function setup(ctx: SpindleFrontendContext) {
 
     if (!textarea) return
 
-    updateMobileMatchHighlight()
-
     textarea.setSelectionRange(
       match.startIndex,
       match.startIndex + match.length
@@ -1006,6 +926,17 @@ export function setup(ctx: SpindleFrontendContext) {
         match.startIndex,
         match.startIndex + match.length
       )
+    } else {
+      // Mobile: briefly focus the textarea so its native ::selection highlight
+      // is painted, then immediately blur it so the keyboard does not remain open.
+      // The selection itself is retained after blur on mobile browsers that support
+      // native textarea selection rendering.
+      textarea.focus({ preventScroll: true })
+      textarea.setSelectionRange(
+        match.startIndex,
+        match.startIndex + match.length
+      )
+      textarea.blur()
     }
   }
 
