@@ -148,11 +148,17 @@ export function setup(ctx: SpindleFrontendContext) {
     .rs-field-sub { font-size: 10.5px; font-weight: normal; color: var(--lumiverse-text-dim); }
     
     /* CSS: Main editor textarea; fixed starting height, monospace text, and vertical resize support. */
-    .rs-field-textarea { width: 100%; min-height: 250px; height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; }
+    .rs-field-textarea { width: 100%; min-height: 250px; height: 250px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; background: transparent; color: var(--lumiverse-text); border: none; padding: 8px 10px; resize: vertical; box-sizing: border-box; outline: none; position: relative; z-index: 1; }
     /* CSS: Focus state for an editor textarea; adds a subtle background to show active editing. */
     .rs-field-textarea:focus { background: var(--lumiverse-fill-subtle); }
     /* CSS: Text-selection highlight; uses the user-selected regex highlight color. */
     .rs-field-textarea::selection { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; }
+    /* CSS: Mobile match-rendering layer; mirrors the textarea text while allowing a real HTML highlight. */
+    .rs-mobile-highlight { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; padding: 8px 10px; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: break-word; color: var(--lumiverse-text); }
+    /* CSS: Inner mobile highlight text; its width matches the editable textarea's content width. */
+    .rs-mobile-highlight-inner { min-height: 100%; white-space: pre-wrap; overflow-wrap: break-word; }
+    /* CSS: Actual highlighted regex match rendered by the mobile mirror. */
+    .rs-mobile-highlight mark { background: var(--rs-highlight-color, rgba(109, 93, 252, 0.45)); color: inherit; border-radius: 2px; }
 
     /* CSS: Circular color-picker control used to choose the match-selection highlight color. */
     .rs-color-swatch { width: 20px; height: 20px; border-radius: 50%; border: 1px solid var(--lumiverse-border); cursor: pointer; padding: 0; background: none; -webkit-appearance: none; appearance: none; }
@@ -641,6 +647,18 @@ export function setup(ctx: SpindleFrontendContext) {
 
       // HTML: Editable text area containing the actual character/lorebook/custom text value.
       // CSS: .rs-field-textarea controls typography, dimensions, selection color, and resize behavior.
+      const fieldEditor = document.createElement('div')
+      fieldEditor.style.position = 'relative'
+      fieldEditor.style.width = '100%'
+      fieldEditor.style.minHeight = '250px'
+
+      const mobileHighlight = document.createElement('div')
+      mobileHighlight.className = 'rs-mobile-highlight'
+      mobileHighlight.dataset.fieldId = field.id
+      const mobileHighlightInner = document.createElement('div')
+      mobileHighlightInner.className = 'rs-mobile-highlight-inner'
+      mobileHighlight.appendChild(mobileHighlightInner)
+
       const textarea = document.createElement('textarea')
       textarea.className = 'rs-field-textarea'
       textarea.value = field.value
@@ -648,8 +666,33 @@ export function setup(ctx: SpindleFrontendContext) {
       textarea.placeholder = `Enter content here...`
       textarea.style.display = fieldsExpanded ? 'block' : 'none'
 
+      const isMobileDevice =
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0
+
+      if (isMobileDevice) {
+        textarea.style.color = 'transparent'
+        textarea.style.caretColor = 'var(--lumiverse-text)'
+        textarea.style.background = 'transparent'
+      }
+
+      function syncMobileHighlight() {
+        if (!isMobileDevice) return
+        mobileHighlightInner.textContent = textarea.value
+        mobileHighlight.style.display = textarea.style.display === 'none' ? 'none' : 'block'
+        mobileHighlight.scrollTop = textarea.scrollTop
+        mobileHighlight.scrollLeft = textarea.scrollLeft
+      }
+
+      textarea.addEventListener('scroll', () => {
+        if (!isMobileDevice) return
+        mobileHighlight.scrollTop = textarea.scrollTop
+        mobileHighlight.scrollLeft = textarea.scrollLeft
+      })
+
       textarea.oninput = () => {
         field.value = textarea.value
+        syncMobileHighlight()
         scanMatches({ shouldFocus: false })
 
         if (typingTimer) clearTimeout(typingTimer)
@@ -674,8 +717,15 @@ export function setup(ctx: SpindleFrontendContext) {
           : 'none'
       })
 
+      fieldEditor.appendChild(mobileHighlight)
+      fieldEditor.appendChild(textarea)
       box.appendChild(header)
-      box.appendChild(textarea)
+      box.appendChild(fieldEditor)
+
+      if (isMobileDevice) {
+        syncMobileHighlight()
+      }
+
       fieldsContainer.appendChild(box)
     })
 
@@ -785,6 +835,11 @@ export function setup(ctx: SpindleFrontendContext) {
     if (!rx || fields.length === 0) {
       currentMatchIndex = -1
       updateMatchUI(opts.shouldFocus ?? false)
+
+      fieldsContainer.querySelectorAll('.rs-mobile-highlight').forEach((element) => {
+        ;(element as HTMLElement).style.display = 'none'
+      })
+
       return
     }
 
@@ -813,6 +868,10 @@ export function setup(ctx: SpindleFrontendContext) {
     }
 
     updateMatchUI(opts.shouldFocus ?? false)
+
+    if (!opts.shouldFocus) {
+      updateMobileMatchHighlight()
+    }
   }
 
   function updateMatchUI(shouldFocus: boolean) {
@@ -830,6 +889,62 @@ export function setup(ctx: SpindleFrontendContext) {
       if (shouldFocus) {
         highlightCurrentMatch()
       }
+    }
+  }
+
+  function updateMobileMatchHighlight() {
+    const isMobile =
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0
+
+    if (!isMobile) return
+    if (currentMatchIndex < 0 || currentMatchIndex >= currentMatches.length) return
+
+    const match = currentMatches[currentMatchIndex]
+    const textarea = fieldsContainer.querySelector(
+      `[data-field-id="${match.fieldId}"]`
+    ) as HTMLTextAreaElement | null
+
+    if (!textarea) return
+
+    const highlight = textarea.parentElement?.querySelector(
+      '.rs-mobile-highlight'
+    ) as HTMLElement | null
+
+    const highlightInner = highlight?.querySelector(
+      '.rs-mobile-highlight-inner'
+    ) as HTMLElement | null
+
+    if (!highlight || !highlightInner) return
+
+    const value = textarea.value
+    const before = value.slice(0, match.startIndex)
+    const matched = value.slice(match.startIndex, match.startIndex + match.length)
+    const after = value.slice(match.startIndex + match.length)
+
+    const escapeHtml = (text: string) =>
+      text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+
+    highlightInner.innerHTML =
+      `${escapeHtml(before)}<mark>${escapeHtml(matched)}</mark>${escapeHtml(after)}`
+
+    highlight.style.display = 'block'
+
+    const mark = highlightInner.querySelector('mark') as HTMLElement | null
+    if (mark) {
+      const targetScrollTop = Math.max(
+        0,
+        mark.offsetTop - (textarea.clientHeight / 2) + (mark.offsetHeight / 2)
+      )
+
+      highlight.scrollTop = targetScrollTop
+      highlight.scrollLeft = textarea.scrollLeft
+      textarea.scrollTop = targetScrollTop
     }
   }
 
@@ -904,6 +1019,21 @@ export function setup(ctx: SpindleFrontendContext) {
 
     if (!textarea) return
 
+    const isMobile =
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0
+
+    if (isMobile) {
+      updateMobileMatchHighlight()
+
+      textarea.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      })
+
+      return
+    }
+
     textarea.setSelectionRange(
       match.startIndex,
       match.startIndex + match.length
@@ -914,30 +1044,11 @@ export function setup(ctx: SpindleFrontendContext) {
       behavior: 'smooth',
     })
 
-    // Desktop: focus the textarea as before.
-    // Mobile: don't focus it, because focusing a textarea opens the keyboard.
-    const isMobile =
-      'ontouchstart' in window ||
-      navigator.maxTouchPoints > 0
-
-    if (!isMobile) {
-      textarea.focus({ preventScroll: true })
-      textarea.setSelectionRange(
-        match.startIndex,
-        match.startIndex + match.length
-      )
-    } else {
-      // Mobile: briefly focus the textarea so its native ::selection highlight
-      // is painted, then immediately blur it so the keyboard does not remain open.
-      // The selection itself is retained after blur on mobile browsers that support
-      // native textarea selection rendering.
-      textarea.focus({ preventScroll: true })
-      textarea.setSelectionRange(
-        match.startIndex,
-        match.startIndex + match.length
-      )
-      textarea.blur()
-    }
+    textarea.focus({ preventScroll: true })
+    textarea.setSelectionRange(
+      match.startIndex,
+      match.startIndex + match.length
+    )
   }
 
   function nextMatch() {
