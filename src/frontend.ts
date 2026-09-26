@@ -105,16 +105,22 @@ export function setup(ctx: SpindleFrontendContext) {
     iconSvg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>`,
   })
 
+  // Keep the drawer tab itself bounded so the editor can own its internal scroll area.
+  tab.root.style.height = '100%'
+  tab.root.style.minHeight = '0'
+  tab.root.style.overflow = 'hidden'
+
   // ── Styles ──
   const removeStyle = ctx.dom.addStyle(`
     /* CSS: Main Regex Studio wrapper; vertical layout, spacing, padding, and base text styling. */
-    .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); height: 100%; max-height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; }
+    .rs-container { display: flex; flex-direction: column; gap: 10px; padding: 12px; font-size: 13px; color: var(--lumiverse-text); height: 100%; min-height: 0; overflow: hidden; box-sizing: border-box; }
     /* CSS: Generic horizontal flex row used throughout the UI; wraps on narrow screens. */
     .rs-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     /* CSS: Keep the editor workspace fixed while only the field list scrolls. */
-    #rs-view-editor { overflow: hidden; height: 100%; }
+    #rs-view-editor { overflow: hidden; min-height: 0; height: 0; flex: 1 1 auto; }
     /* CSS: Keep the regex controls and action toolbar visible above the scrolling fields. */
     #rs-regex-card { flex-shrink: 0; }
+    #rs-view-editor > .rs-row, #rs-view-editor > .rs-settings-details, #rs-view-editor > .rs-action-toolbar { flex-shrink: 0; }
     .rs-action-toolbar { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; }
     .rs-action-toolbar .rs-btn { flex-shrink: 0; }
     .rs-action-toolbar::-webkit-scrollbar { display: none; }
@@ -146,7 +152,7 @@ export function setup(ctx: SpindleFrontendContext) {
     /* CSS: Shared bordered panel/card container. */
     .rs-card { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
     /* CSS: Scrollable stack of editable character/lorebook text fields; fills remaining editor space. */
-    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; flex: 1 1 0; height: 0; min-height: 0; max-height: none; overflow-y: auto; padding-right: 2px; }
+    .rs-fields-list { display: flex; flex-direction: column; gap: 12px; flex: 1 1 0; min-height: 0; height: 0; max-height: none; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-right: 2px; }
     
     /* CSS: Individual editable-field panel containing a field header and textarea. */
     .rs-field-box { background: var(--lumiverse-fill); border: 1px solid var(--lumiverse-border); border-radius: var(--lumiverse-radius); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
