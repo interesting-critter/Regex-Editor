@@ -914,19 +914,11 @@ export function setup(ctx: SpindleFrontendContext) {
       behavior: 'smooth',
     })
 
-    // Desktop: focus the textarea as before.
-    // Mobile: don't focus it, because focusing a textarea opens the keyboard.
-    const isMobile =
-      'ontouchstart' in window ||
-      navigator.maxTouchPoints > 0
-
-    if (!isMobile) {
-      textarea.focus({ preventScroll: true })
-      textarea.setSelectionRange(
-        match.startIndex,
-        match.startIndex + match.length
-      )
-    }
+    textarea.focus({ preventScroll: true })
+    textarea.setSelectionRange(
+      match.startIndex,
+      match.startIndex + match.length
+    )
   }
 
   function nextMatch() {
