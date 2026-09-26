@@ -79,16 +79,16 @@ export function setup(ctx: SpindleFrontendContext) {
     'scenario',
   ])
 
-    // Single Regex & Navigation State
-    let useRegex = true
-    let previewDiffEnabled = true
-    const flags = { g: true, i: false, m: true, s: true }
-    let currentMatches: RegexMatch[] = []
-    let currentMatchIndex = -1
+  // Single Regex & Navigation State
+  let useRegex = true
+  let previewDiffEnabled = true
+  const flags = { g: true, i: false, m: true, s: true }
+  let currentMatches: RegexMatch[] = []
+  let currentMatchIndex = -1
 
-    // Field expansion state
-    let fieldsExpanded = localStorage.getItem('regex-studio-fields-expanded') === 'true'
-    let autoOpenedFieldId: string | null = null
+  // Field expansion state
+  let fieldsExpanded = localStorage.getItem('regex-studio-fields-expanded') === 'true'
+  let autoOpenedFieldId: string | null = null
 
   // Undo / Redo History Stack
   let historyStack: FieldItem[][] = [[]]
@@ -635,7 +635,7 @@ export function setup(ctx: SpindleFrontendContext) {
       const header = document.createElement('div')
       header.className = 'rs-field-header'
       header.innerHTML = `
-        <span>▶ ${field.label}</span>
+        <span>${fieldsExpanded ? '▼' : '▶'} ${field.label}</span>
         ${field.sublabel ? `<span class="rs-field-sub">${field.sublabel}</span>` : ''}
       `
 
@@ -646,7 +646,7 @@ export function setup(ctx: SpindleFrontendContext) {
       textarea.value = field.value
       textarea.dataset.fieldId = field.id
       textarea.placeholder = `Enter content here...`
-      textarea.style.display = fieldsExpanded ? 'block' : 'none''
+      textarea.style.display = fieldsExpanded ? 'block' : 'none'
 
       textarea.oninput = () => {
         field.value = textarea.value
