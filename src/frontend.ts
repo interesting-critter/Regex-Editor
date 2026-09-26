@@ -957,6 +957,7 @@ export function setup(ctx: SpindleFrontendContext) {
       match.startIndex,
       match.startIndex + match.length
     )
+  }
 
   function nextMatch() {
     if (currentMatches.length === 0) return
