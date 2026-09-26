@@ -236,12 +236,14 @@ export function showDiffPreviewModal(
     `
 
     const counts = document.createElement('span')
-    counts.textContent = `(+${diff.additions}, -${diff.removals})`
+    counts.innerHTML = `
+      <span style="color: #4ade80;">+${diff.additions}</span>,
+      <span style="color: #f87171;">-${diff.removals}</span>
+    `
     counts.style.cssText = `
       flex-shrink: 0;
       font-size: 11px;
       font-weight: 600;
-      color: var(--lumiverse-text-dim, rgba(255, 255, 255, 0.55));
       white-space: nowrap;
     `
 
