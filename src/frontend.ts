@@ -736,7 +736,7 @@ export function setup(ctx: SpindleFrontendContext) {
             id: `alt_greeting_${idx}`,
             key: 'alternate_greetings',
             label: `Alternate Greeting ${idx + 1}`,
-            value: greeting || '',
+            value: (greeting || '').replace(/\r\n/g, '\n'),
           })
         })
       } else {
@@ -744,7 +744,7 @@ export function setup(ctx: SpindleFrontendContext) {
           id: f.key,
           key: f.key,
           label: f.label,
-          value: selectedChar[f.key] || '',
+          value: (selectedChar[f.key] || '').replace(/\r\n/g, '\n'),
         })
       }
     }
@@ -766,7 +766,7 @@ export function setup(ctx: SpindleFrontendContext) {
       key: 'entry',
       label: entry.comment || `Entry ${idx + 1}`,
       sublabel: `ID: ${entry.id}`,
-      value: entry.content || '',
+      value: (entry.content || '').replace(/\r\n/g, '\n'),
     }))
 
     renderFieldsDOM()
